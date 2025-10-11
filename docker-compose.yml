@@ -1,0 +1,39 @@
+﻿version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: discord-shop-postgres
+    environment:
+      POSTGRES_DB: discord_shop
+      POSTGRES_USER: shop_user
+      POSTGRES_PASSWORD: shop_password_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: discord-shop-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  mongodb:
+    image: mongo:7
+    container_name: discord-shop-mongo
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: shop_user
+      MONGO_INITDB_ROOT_PASSWORD: shop_password_dev
+      MONGO_INITDB_DATABASE: discord_shop
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+volumes:
+  postgres_data:
+  redis_data:
+  mongo_data:
