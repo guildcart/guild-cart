@@ -22,7 +22,7 @@ export class ProductsService {
       type: ProductType;
       fileUrl?: string;
       discordRoleId?: string;
-      accountCredentials?: string;
+      serialCredentials?: string;  // 🆕 RENOMMÉ (ancien: accountCredentials)
       stock?: number;
     },
   ) {
@@ -85,7 +85,7 @@ export class ProductsService {
       price: number;
       fileUrl: string;
       discordRoleId: string;
-      accountCredentials: string;
+      serialCredentials: string;  // 🆕 RENOMMÉ (ancien: accountCredentials)
       stock: number;
       active: boolean;
     }>,

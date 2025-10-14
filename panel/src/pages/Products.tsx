@@ -9,7 +9,7 @@ interface Product {
   name: string;
   description: string;
   price: number;
-  type: 'PDF' | 'ACCOUNT' | 'ROLE';
+  type: 'PDF' | 'SERIAL' | 'ROLE';
   stock: number | null;
   active: boolean;
   salesCount: number;
@@ -84,7 +84,7 @@ export default function Products() {
     switch (type) {
       case 'PDF': return '📄';
       case 'ROLE': return '👑';
-      case 'ACCOUNT': return '🔑';
+      case 'SERIAL': return '🔑';
       default: return '📦';
     }
   };

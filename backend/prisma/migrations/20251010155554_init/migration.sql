@@ -53,6 +53,7 @@ CREATE TABLE "products" (
     "type" "ProductType" NOT NULL,
     "file_url" TEXT,
     "discord_role_id" TEXT,
+    "serial_credentials" TEXT,
     "stock" INTEGER DEFAULT 0,
     "sales_count" INTEGER NOT NULL DEFAULT 0,
     "active" BOOLEAN NOT NULL DEFAULT true,

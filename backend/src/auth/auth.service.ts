@@ -35,11 +35,14 @@ export class AuthService {
   async login(user: any) {
     const payload = { sub: user.id, discordId: user.discordId };
     return {
-      access_token: this.jwtService.sign(payload),
+      access_token: this.jwtService.sign(payload, {
+        expiresIn: '1d', // 🆕 Token valide 1 jour
+      }),
       user: {
         id: user.id,
         discordId: user.discordId,
         username: user.username,
+        email: user.email,
         avatar: user.avatar,
       },
     };

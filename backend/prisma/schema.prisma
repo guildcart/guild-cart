@@ -63,7 +63,7 @@ model Server {
 enum ProductType {
   PDF
   ACCOUNT
-  ROLE
+  SERIAL
 }
 
 model Product {
@@ -74,8 +74,8 @@ model Product {
   price               Float
   type                ProductType
   fileUrl             String?     @map("file_url")
-  discordRoleId       String?     @map("discord_role_id")
-  accountCredentials  String?     @map("account_credentials")
+  discordSERIALId       String?     @map("discord_role_id")
+  serialCredentials   String?     @map("serial_credentials")  // 🆕 RENOMMÉ (ancien: account_credentials)
   stock               Int?        @default(0)
   salesCount          Int         @default(0) @map("sales_count")
   active              Boolean     @default(true)
