@@ -31,6 +31,7 @@ export class ProductsController {
       type: ProductType;
       fileUrl?: string;
       discordRoleId?: string;
+      accountCredentials?: string;  // 🆕 AJOUTÉ
       stock?: number;
     },
   ) {
@@ -62,6 +63,7 @@ export class ProductsController {
       price: number;
       fileUrl: string;
       discordRoleId: string;
+      accountCredentials: string;  // 🆕 AJOUTÉ
       stock: number;
       active: boolean;
     }>,

@@ -79,15 +79,15 @@ class ApiClient {
   }
 
   // Récupérer les commandes d'un utilisateur
-async getUserOrders(userId: string) {
-  try {
-    const response = await this.client.get(`/orders/user/${userId}`); // Changé ici
-    return response.data;
-  } catch (error) {
-    logger.error('Erreur lors de la récupération des commandes:', error);
-    throw error;
+  async getUserOrders(userId: string) {
+    try {
+      const response = await this.client.get(`/orders/user/${userId}`);
+      return response.data;
+    } catch (error) {
+      logger.error('Erreur lors de la récupération des commandes:', error);
+      throw error;
+    }
   }
-}
 
   // Récupérer les informations d'un serveur
   async getServer(discordServerId: string) {
@@ -100,7 +100,7 @@ async getUserOrders(userId: string) {
     }
   }
 
-  // Créer un serveur
+  // Créer un serveur (méthode originale - peut être obsolète)
   async createServer(data: {
     discordServerId: string;
     shopName: string;
@@ -112,6 +112,27 @@ async getUserOrders(userId: string) {
       return response.data;
     } catch (error) {
       logger.error('Erreur lors de la création du serveur:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 🆕 NOUVEAU - Créer automatiquement un serveur et son owner dans la BDD
+   * Appelé quand le bot est ajouté à un nouveau serveur Discord
+   * Utilise l'endpoint protégé par API key : POST /bot/guild-create
+   */
+  async createGuildInDatabase(data: {
+    guildId: string;
+    guildName: string;
+    ownerId: string;
+    ownerUsername: string;
+    ownerAvatar?: string;
+  }) {
+    try {
+      const response = await this.client.post('/bot/guild-create', data);
+      return response.data;
+    } catch (error) {
+      logger.error('Erreur lors de la création du guild dans la BDD:', error);
       throw error;
     }
   }

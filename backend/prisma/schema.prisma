@@ -67,22 +67,23 @@ enum ProductType {
 }
 
 model Product {
-  id              String      @id @default(uuid())
-  serverId        String      @map("server_id")
-  name            String
-  description     String
-  price           Float
-  type            ProductType
-  fileUrl         String?     @map("file_url")
-  discordRoleId   String?     @map("discord_role_id")
-  stock           Int?        @default(0)
-  salesCount      Int         @default(0) @map("sales_count")
-  active          Boolean     @default(true)
-  createdAt       DateTime    @default(now()) @map("created_at")
-  updatedAt       DateTime    @updatedAt @map("updated_at")
+  id                  String      @id @default(uuid())
+  serverId            String      @map("server_id")
+  name                String
+  description         String
+  price               Float
+  type                ProductType
+  fileUrl             String?     @map("file_url")
+  discordRoleId       String?     @map("discord_role_id")
+  accountCredentials  String?     @map("account_credentials")
+  stock               Int?        @default(0)
+  salesCount          Int         @default(0) @map("sales_count")
+  active              Boolean     @default(true)
+  createdAt           DateTime    @default(now()) @map("created_at")
+  updatedAt           DateTime    @updatedAt @map("updated_at")
 
-  server          Server      @relation(fields: [serverId], references: [id], onDelete: Cascade)
-  orders          Order[]
+  server              Server      @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  orders              Order[]
   
   @@map("products")
   @@index([serverId])

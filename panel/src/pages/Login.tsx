@@ -1,30 +1,20 @@
 import { useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { ShoppingBag } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
 
 export default function Login() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const { user, login } = useAuthStore();
+  const { user } = useAuthStore();
 
   useEffect(() => {
-    // Si déjà connecté, rediriger
     if (user) {
-      navigate('/');
-      return;
+      navigate('/', { replace: true });
     }
-
-    // Vérifier si on a un token dans l'URL (callback OAuth)
-    const token = searchParams.get('token');
-    if (token) {
-      login(token).then(() => navigate('/'));
-    }
-  }, [user, searchParams, navigate, login]);
+  }, [user, navigate]);
 
   const handleDiscordLogin = () => {
-    // Rediriger vers l'endpoint OAuth Discord du backend
-    window.location.href = '/api/auth/discord';
+    window.location.href = 'http://localhost:3000/api/auth/discord';
   };
 
   return (
@@ -34,13 +24,13 @@ export default function Login() {
           <div className="bg-gradient-to-r from-purple-600 to-pink-600 w-20 h-20 rounded-2xl mx-auto mb-4 flex items-center justify-center">
             <ShoppingBag className="w-10 h-10 text-white" />
           </div>
-          <h1 className="text-3xl font-bold text-white mb-2">Discord Shop</h1>
+          <h1 className="text-3xl font-bold text-white mb-2">Guild Cart</h1>
           <p className="text-gray-400">Panel d'administration</p>
         </div>
 
         <button
           onClick={handleDiscordLogin}
-          className="w-full bg-discord-blurple hover:bg-blue-600 text-white font-bold py-4 rounded-lg transition-all flex items-center justify-center gap-3 mb-4"
+          className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-lg transition-all flex items-center justify-center gap-3 mb-4 shadow-lg"
         >
           <svg className="w-6 h-6" viewBox="0 0 71 55" fill="none">
             <g clipPath="url(#clip0)">
