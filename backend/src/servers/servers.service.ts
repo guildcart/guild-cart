@@ -1,3 +1,5 @@
+// backend/src/servers/servers.service.ts - CORRIGÉ
+
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SubscriptionTier } from '@prisma/client';
@@ -12,7 +14,6 @@ export class ServersService {
     description?: string;
     ownerId: string;
   }) {
-    // Vérifier si le serveur existe déjà
     const existing = await this.prisma.server.findUnique({
       where: { discordServerId: data.discordServerId },
     });
@@ -25,7 +26,8 @@ export class ServersService {
       data: {
         ...data,
         subscriptionTier: SubscriptionTier.FREE,
-        commissionRate: 5.0, // 5% par défaut pour plan FREE
+        commissionRate: 5.0,
+        primaryColor: '#7C3AED',
       },
     });
   }
@@ -71,6 +73,7 @@ export class ServersService {
     data: Partial<{
       shopName: string;
       description: string;
+      primaryColor: string;
       active: boolean;
     }>,
   ) {
@@ -86,12 +89,54 @@ export class ServersService {
     });
   }
 
+  // 🆕 CORRIGÉ : Ajout de activeProducts
+  async getStats(id: string) {
+    const server = await this.findOne(id);
+
+    const totalRevenue = await this.prisma.order.aggregate({
+      where: {
+        serverId: id,
+        status: 'COMPLETED',
+      },
+      _sum: {
+        amount: true,
+      },
+    });
+
+    const totalOrders = await this.prisma.order.count({
+      where: {
+        serverId: id,
+        status: 'COMPLETED',
+      },
+    });
+
+    const totalProducts = await this.prisma.product.count({
+      where: { serverId: id },
+    });
+
+    // 🆕 Compter les produits actifs
+    const activeProducts = await this.prisma.product.count({
+      where: { 
+        serverId: id,
+        active: true,
+      },
+    });
+
+    return {
+      totalRevenue: totalRevenue._sum.amount || 0,
+      totalOrders,
+      totalProducts,
+      activeProducts,  // 🆕 Ajouté
+      subscriptionTier: server.subscriptionTier,
+      commissionRate: server.commissionRate,
+    };
+  }
+
   async updateSubscription(
     id: string,
     tier: SubscriptionTier,
     stripeSubscriptionId?: string,
   ) {
-    // Définir le taux de commission selon le tier
     const commissionRates = {
       FREE: 5.0,
       STARTER: 3.5,
@@ -106,34 +151,10 @@ export class ServersService {
         subscriptionTier: tier,
         commissionRate: commissionRates[tier],
         stripeSubscriptionId,
-        subscriptionExpiresAt: new Date(
-          Date.now() + 30 * 24 * 60 * 60 * 1000,
-        ), // 30 jours
+        subscriptionExpiresAt: tier === SubscriptionTier.FREE 
+          ? null 
+          : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       },
     });
-  }
-
-  async getStats(serverId: string) {
-    const server = await this.findOne(serverId);
-
-    const orders = await this.prisma.order.findMany({
-      where: { serverId },
-    });
-
-    const totalRevenue = orders.reduce((sum, order) => sum + order.amount, 0);
-    const totalCommissions = orders.reduce(
-      (sum, order) => sum + order.commissionAmount,
-      0,
-    );
-
-    return {
-      server,
-      stats: {
-        totalOrders: orders.length,
-        totalRevenue,
-        totalCommissions,
-        netRevenue: totalRevenue - totalCommissions,
-      },
-    };
   }
 }

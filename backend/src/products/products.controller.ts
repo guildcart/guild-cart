@@ -29,9 +29,11 @@ export class ProductsController {
       description: string;
       price: number;
       type: ProductType;
+      imageUrl?: string;         // 🆕 Image
       fileUrl?: string;
       discordRoleId?: string;
-      serialCredentials?: string;  // 🆕 RENOMMÉ (ancien: accountCredentials)
+      bonusRoleId?: string;      // 🆕 Bonus role
+      serialCredentials?: string;
       stock?: number;
     },
   ) {
@@ -61,9 +63,11 @@ export class ProductsController {
       name: string;
       description: string;
       price: number;
+      imageUrl: string;        // 🆕 Image
       fileUrl: string;
       discordRoleId: string;
-      serialCredentials: string;  // 🆕 RENOMMÉ (ancien: accountCredentials)
+      bonusRoleId: string;     // 🆕 Bonus role
+      serialCredentials: string;
       stock: number;
       active: boolean;
     }>,

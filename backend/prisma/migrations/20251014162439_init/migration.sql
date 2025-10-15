@@ -5,7 +5,7 @@ CREATE TYPE "SubscriptionTier" AS ENUM ('FREE', 'STARTER', 'PRO', 'BUSINESS', 'E
 CREATE TYPE "SubscriptionStatus" AS ENUM ('ACTIVE', 'CANCELED', 'PAST_DUE', 'EXPIRED');
 
 -- CreateEnum
-CREATE TYPE "ProductType" AS ENUM ('PDF', 'ACCOUNT', 'ROLE');
+CREATE TYPE "ProductType" AS ENUM ('PDF', 'SERIAL', 'ROLE');
 
 -- CreateEnum
 CREATE TYPE "OrderStatus" AS ENUM ('PENDING', 'COMPLETED', 'REFUNDED', 'FAILED');

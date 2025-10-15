@@ -51,6 +51,7 @@ export class ServersController {
     body: Partial<{
       shopName: string;
       description: string;
+      primaryColor: string;  // 🆕 Couleur
       active: boolean;
     }>,
   ) {

@@ -1,3 +1,5 @@
+// backend/prisma/schema.prisma - VERSION CORRIGÉE
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -50,6 +52,10 @@ model Server {
   stripeSubscriptionId  String?             @unique @map("stripe_subscription_id")
   subscriptionExpiresAt DateTime?           @map("subscription_expires_at")
   active                Boolean             @default(true)
+  
+  // 🆕 NOUVEAU : Couleur personnalisée
+  primaryColor          String?             @default("#7C3AED") @map("primary_color")
+  
   createdAt             DateTime            @default(now()) @map("created_at")
   updatedAt             DateTime            @updatedAt @map("updated_at")
 
@@ -60,10 +66,11 @@ model Server {
   @@map("servers")
 }
 
+// ✅ CORRIGÉ : PDF, SERIAL, ROLE (ACCOUNT supprimé)
 enum ProductType {
   PDF
-  ACCOUNT
   SERIAL
+  ROLE
 }
 
 model Product {
@@ -73,9 +80,17 @@ model Product {
   description         String
   price               Float
   type                ProductType
+  
+  // 🆕 NOUVEAU : Image du produit (URL)
+  imageUrl            String?     @map("image_url")
+  
   fileUrl             String?     @map("file_url")
-  discordSERIALId       String?     @map("discord_role_id")
-  serialCredentials   String?     @map("serial_credentials")  // 🆕 RENOMMÉ (ancien: account_credentials)
+  discordRoleId       String?     @map("discord_role_id")
+  
+  // 🆕 NOUVEAU : Rôle bonus (pour PDF et SERIAL)
+  bonusRoleId         String?     @map("bonus_role_id")
+  
+  serialCredentials   String?     @map("serial_credentials")
   stock               Int?        @default(0)
   salesCount          Int         @default(0) @map("sales_count")
   active              Boolean     @default(true)
