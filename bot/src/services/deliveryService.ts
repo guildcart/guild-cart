@@ -1,3 +1,6 @@
+// bot/src/services/deliveryService.ts
+// ✅ CORRIGÉ : ACCOUNT remplacé par SERIAL
+
 import { Client, EmbedBuilder, AttachmentBuilder } from 'discord.js';
 import { logger } from '../utils/logger';
 import { apiClient } from '../utils/apiClient';
@@ -17,16 +20,12 @@ export async function deliverProduct(
   const { orderId, userId, productId, productType, deliveryData } = data;
 
   try {
-    // Récupérer l'utilisateur Discord
     const user = await client.users.fetch(userId);
-    
-    // Récupérer les détails du produit
     const product = await apiClient.getProduct(productId);
 
     let dmSent = false;
     let emailSent = false;
 
-    // Essayer d'envoyer en DM d'abord
     try {
       await sendDM(user, product, productType, deliveryData);
       dmSent = true;
@@ -34,7 +33,6 @@ export async function deliverProduct(
     } catch (error: any) {
       logger.warn(`⚠️ Impossible d'envoyer en DM à ${user.tag}:`, error.message);
       
-      // Si DM bloqué, envoyer par email
       if (error.code === 50007 || error.message.includes('Cannot send messages')) {
         try {
           await sendEmailDelivery(user, product, productType, deliveryData);
@@ -49,7 +47,6 @@ export async function deliverProduct(
       }
     }
 
-    // Marquer la commande comme livrée
     await apiClient.markOrderAsDelivered(orderId, JSON.stringify({
       dmSent,
       emailSent,
@@ -75,7 +72,6 @@ async function sendDM(
     .setDescription(`Merci pour ton achat de **${product.name}** !`)
     .setTimestamp();
 
-  let messageContent = '';
   let files: AttachmentBuilder[] = [];
 
   switch (productType) {
@@ -86,7 +82,6 @@ async function sendDM(
           value: 'Ton fichier est joint à ce message.',
         });
 
-        // Télécharger le fichier et l'attacher
         try {
           const response = await axios.get(product.fileUrl, {
             responseType: 'arraybuffer',
@@ -106,25 +101,35 @@ async function sendDM(
       }
       break;
 
-    case 'ACCOUNT':
+    case 'SERIAL':  // ✅ SERIAL au lieu de ACCOUNT
       if (deliveryData) {
-        const accountInfo = typeof deliveryData === 'string' 
+        // ✅ Format nouveau : Array de strings
+        const serialInfo = typeof deliveryData === 'string' 
           ? JSON.parse(deliveryData) 
           : deliveryData;
 
-        embed.addFields(
-          {
+        // Si c'est un array de strings (nouveau format)
+        if (Array.isArray(serialInfo) && typeof serialInfo[0] === 'string') {
+          embed.addFields({
+            name: '🔑 Ton Serial / Clé',
+            value: '```' + serialInfo[0] + '```',
+          });
+        }
+        // Rétrocompatibilité ancien format login:password
+        else if (serialInfo.login && serialInfo.password) {
+          embed.addFields({
             name: '🔑 Informations de connexion',
             value: '```' + 
-              `Login: ${accountInfo.login || 'N/A'}\n` +
-              `Password: ${accountInfo.password || 'N/A'}` +
+              `Login: ${serialInfo.login}\n` +
+              `Password: ${serialInfo.password}` +
               '```',
-          },
-          {
-            name: '⚠️ Important',
-            value: 'Garde ces informations en sécurité. Ne les partage avec personne.',
-          }
-        );
+          });
+        }
+        
+        embed.addFields({
+          name: '⚠️ Important',
+          value: 'Garde ces informations en sécurité. Ne les partage avec personne.',
+        });
       }
       break;
 
@@ -165,20 +170,30 @@ async function sendEmailDelivery(
       `;
       break;
 
-    case 'ACCOUNT':
+    case 'SERIAL':  // ✅ SERIAL au lieu de ACCOUNT
       if (deliveryData) {
-        const accountInfo = typeof deliveryData === 'string' 
+        const serialInfo = typeof deliveryData === 'string' 
           ? JSON.parse(deliveryData) 
           : deliveryData;
 
-        emailContent += `
-          <p>🔑 <strong>Informations de connexion :</strong></p>
-          <div style="background-color: #f0f0f0; padding: 15px; border-radius: 5px; font-family: monospace;">
-            <strong>Login:</strong> ${accountInfo.login || 'N/A'}<br>
-            <strong>Password:</strong> ${accountInfo.password || 'N/A'}
-          </div>
-          <p>⚠️ <strong>Important :</strong> Garde ces informations en sécurité.</p>
-        `;
+        if (Array.isArray(serialInfo) && typeof serialInfo[0] === 'string') {
+          emailContent += `
+            <p>🔑 <strong>Ton serial / clé :</strong></p>
+            <div style="background-color: #f0f0f0; padding: 15px; border-radius: 5px; font-family: monospace;">
+              ${serialInfo[0]}
+            </div>
+            <p>⚠️ <strong>Important :</strong> Garde cette clé en sécurité.</p>
+          `;
+        } else if (serialInfo.login && serialInfo.password) {
+          emailContent += `
+            <p>🔑 <strong>Informations de connexion :</strong></p>
+            <div style="background-color: #f0f0f0; padding: 15px; border-radius: 5px; font-family: monospace;">
+              <strong>Login:</strong> ${serialInfo.login}<br>
+              <strong>Password:</strong> ${serialInfo.password}
+            </div>
+            <p>⚠️ <strong>Important :</strong> Garde ces informations en sécurité.</p>
+          `;
+        }
       }
       break;
 
@@ -199,7 +214,7 @@ async function sendEmailDelivery(
   `;
 
   await sendEmail({
-    to: user.email || `${user.id}@discord-fallback.com`, // Fallback si pas d'email
+    to: user.email || `${user.id}@discord-fallback.com`,
     subject: `✅ Ton achat : ${product.name}`,
     html: emailContent,
   });

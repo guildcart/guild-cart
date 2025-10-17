@@ -16,7 +16,6 @@ interface Settings {
   notifyOnSale: boolean;
 }
 
-// Lien d'invitation Discord dynamique
 const DISCORD_INVITE_URL = `https://discord.com/oauth2/authorize?client_id=${import.meta.env.VITE_DISCORD_CLIENT_ID}&permissions=8&scope=bot%20applications.commands`;
 
 export default function Settings() {
@@ -29,9 +28,9 @@ export default function Settings() {
     primaryColor: '#7C3AED',
     stripePublicKey: '',
     stripeSecretKey: '',
-    commissionRate: 2,
+    commissionRate: 5,
     webhookUrl: '',
-    notifyOnSale: true,
+    notifyOnSale: false,
   });
 
   const [loading, setLoading] = useState(true);
@@ -54,17 +53,18 @@ export default function Settings() {
       const response = await serversApi.getServer(selectedServerId);
       const serverData = response.data;
       
+      // ✅ CORRIGÉ : Charger TOUTES les valeurs depuis la BDD
       setSettings({
         guildId: serverData.discordServerId || '',
         guildName: serverData.shopName || '',
         shopName: serverData.shopName || '',
         shopDescription: serverData.description || '',
-        primaryColor: '#7C3AED',
-        stripePublicKey: '',
-        stripeSecretKey: '',
-        commissionRate: 2,
-        webhookUrl: '',
-        notifyOnSale: true,
+        primaryColor: serverData.primaryColor || '#7C3AED',
+        stripePublicKey: serverData.stripePublicKey || '',
+        stripeSecretKey: serverData.stripeSecretKey || '',
+        commissionRate: serverData.commissionRate || 5,
+        webhookUrl: serverData.webhookUrl || '',
+        notifyOnSale: serverData.notifyOnSale || false,
       });
     } catch (err: any) {
       console.error('Erreur chargement paramètres:', err);
@@ -102,9 +102,15 @@ export default function Settings() {
       setError(null);
       setSuccess(false);
 
+      // ✅ CORRIGÉ : Envoyer TOUS les champs
       await serversApi.updateServer(selectedServerId, {
         shopName: settings.shopName,
         description: settings.shopDescription,
+        primaryColor: settings.primaryColor,
+        stripePublicKey: settings.stripePublicKey,
+        stripeSecretKey: settings.stripeSecretKey,
+        webhookUrl: settings.webhookUrl,
+        notifyOnSale: settings.notifyOnSale,
       });
       
       setSuccess(true);
@@ -137,6 +143,16 @@ export default function Settings() {
           <p className="text-gray-400 mb-8 text-lg">
             Invitez le bot Guild Cart sur votre serveur Discord pour accéder aux paramètres.
           </p>
+          <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 max-w-lg mx-auto mb-6">
+            <p className="text-white font-semibold mb-4 flex items-center gap-2">
+              💡 <span>Comment ça fonctionne ?</span>
+            </p>
+            <ol className="text-gray-300 space-y-3 list-decimal list-inside text-left">
+              <li>Invitez le bot Guild Cart sur votre serveur Discord</li>
+              <li>Le bot créera automatiquement votre boutique</li>
+              <li>Revenez sur ce panel pour gérer vos paramètres</li>
+            </ol>
+          </div>
           <a
             href={DISCORD_INVITE_URL}
             target="_blank"
@@ -144,9 +160,9 @@ export default function Settings() {
             className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-8 py-4 rounded-lg transition-colors shadow-lg"
           >
             <svg className="w-6 h-6" viewBox="0 0 71 55" fill="none">
-              <path d="M60.1045 4.8978C55.5792 2.8214 50.7265 1.2916 45.6527 0.41542C45.5603 0.39851 45.468 0.440769 45.4204 0.525289C44.7963 1.6353 44.105 3.0834 43.6209 4.2216C38.1637 3.4046 32.7345 3.4046 27.3892 4.2216C26.905 3.0581 26.1886 1.6353 25.5617 0.525289C25.5141 0.443589 25.4218 0.40133 25.3294 0.41542C20.2584 1.2888 15.4057 2.8186 10.8776 4.8978C10.8384 4.9147 10.8048 4.9429 10.7825 4.9795C1.57795 18.7309 -0.943561 32.1443 0.293408 45.3914C0.299005 45.4562 0.335386 45.5182 0.385761 45.5576C6.45866 50.0174 12.3413 52.7249 18.1147 54.5195C18.2071 54.5477 18.305 54.5139 18.3638 54.4378C19.7295 52.5728 20.9469 50.6063 21.9907 48.5383C22.0523 48.4172 21.9935 48.2735 21.8676 48.2256C19.9366 47.4931 18.0979 46.6 16.3292 45.5858C16.1893 45.5041 16.1781 45.304 16.3068 45.2082C16.679 44.9293 17.0513 44.6391 17.4067 44.3461C17.471 44.2926 17.5606 44.2813 17.6362 44.3151C29.2558 49.6202 41.8354 49.6202 53.3179 44.3151C53.3935 44.2785 53.4831 44.2898 53.5502 44.3433C53.9057 44.6363 54.2779 44.9293 54.6529 45.2082C54.7816 45.304 54.7732 45.5041 54.6333 45.5858C52.8646 46.6197 51.0259 47.4931 49.0921 48.2228C48.9662 48.2707 48.9102 48.4172 48.9718 48.5383C50.038 50.6034 51.2554 52.5699 52.5959 54.435C52.6519 54.5139 52.7526 54.5477 52.845 54.5195C58.6464 52.7249 64.529 50.0174 70.6019 45.5576C70.6551 45.5182 70.6887 45.459 70.6943 45.3942C72.1747 30.0791 68.2147 16.7757 60.1968 4.9823C60.1772 4.9429 60.1437 4.9147 60.1045 4.8978Z" fill="currentColor"/>
+              <path d="M60.1045 4.8978C55.5792 2.8214 50.7265 1.2916 45.6527 0.41542C45.5603 0.39851 45.468 0.440769 45.4204 0.525289C44.7963 1.6353 44.105 3.0834 43.6209 4.2216C38.1637 3.4046 32.7345 3.4046 27.3892 4.2216C26.905 3.0581 26.1886 1.6353 25.5617 0.525289C25.5141 0.443589 25.4218 0.40133 25.3294 0.41542C20.2584 1.2888 15.4057 2.8186 10.8776 4.8978C10.8384 4.9147 10.8048 4.9429 10.7825 4.9795C1.57795 18.7309 -0.943561 32.1443 0.293408 45.3914C0.299005 45.4562 0.335386 45.5182 0.385761 45.5576C6.45866 50.0174 12.3413 52.7249 18.1147 54.5195C18.2071 54.5477 18.305 54.5139 18.3638 54.4378C19.7295 52.5728 20.9469 50.6063 21.9907 48.5383C22.0523 48.4172 21.9935 48.2735 21.8676 48.2256C19.9366 47.4931 18.0979 46.6 16.3292 45.5858C16.1893 45.5041 16.1781 45.304 16.3068 45.2082C16.679 44.9293 17.0513 44.6391 17.4067 44.3461C17.471 44.2926 17.5606 44.2813 17.6362 44.3151C29.2558 49.6202 41.8354 49.6202 53.3179 44.3151C53.3935 44.2785 53.4831 44.2898 53.5502 44.3433C53.9057 44.6363 54.2779 44.9293 54.6529 45.2082C54.7816 45.304 54.7732 45.5041 54.6333 45.5858C52.8646 46.6168 51.0259 47.4931 49.0921 48.2228C48.9662 48.2707 48.9102 48.4172 48.9718 48.5383C50.0327 50.6034 51.25 52.5699 52.5991 54.4378C52.6551 54.5139 52.7516 54.5477 52.844 54.5195C58.6286 52.7249 64.5113 50.0174 70.5842 45.5576C70.6342 45.5182 70.6704 45.4566 70.676 45.3914C72.111 30.4481 68.6618 17.0074 60.1437 4.9795C60.1214 4.9429 60.0878 4.9147 60.1045 4.8978ZM23.7259 37.3253C20.2276 37.3253 17.3451 34.1145 17.3451 30.1693C17.3451 26.224 20.1717 23.0133 23.7259 23.0133C27.3359 23.0133 30.1625 26.2797 30.1067 30.1693C30.1067 34.1145 27.28 37.3253 23.7259 37.3253ZM47.3178 37.3253C43.8196 37.3253 40.9371 34.1145 40.9371 30.1693C40.9371 26.224 43.7636 23.0133 47.3178 23.0133C50.9279 23.0133 53.7544 26.2797 53.6986 30.1693C53.6986 34.1145 50.9279 37.3253 47.3178 37.3253Z" fill="currentColor"/>
             </svg>
-            Inviter le bot sur Discord
+            Inviter Guild Cart
           </a>
         </div>
       </div>
@@ -190,6 +206,7 @@ export default function Settings() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Serveur Discord */}
           <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 shadow-lg">
             <div className="flex items-center gap-3 mb-6">
               <Server className="w-6 h-6 text-purple-500" />
@@ -219,6 +236,7 @@ export default function Settings() {
             </div>
           </div>
 
+          {/* Apparence */}
           <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 shadow-lg">
             <div className="flex items-center gap-3 mb-6">
               <Palette className="w-6 h-6 text-purple-500" />
@@ -272,6 +290,7 @@ export default function Settings() {
             </div>
           </div>
 
+          {/* Paiements Stripe */}
           <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 shadow-lg">
             <div className="flex items-center gap-3 mb-6">
               <CreditCard className="w-6 h-6 text-purple-500" />
@@ -299,23 +318,35 @@ export default function Settings() {
                   className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 transition-colors"
                   placeholder="sk_live_..."
                 />
+                <p className="text-gray-500 text-xs mt-1">
+                  🔒 Votre clé secrète est stockée de manière sécurisée
+                </p>
               </div>
 
               <div>
-                <label className="block text-white font-semibold mb-2">Taux de commission (%)</label>
+                <label className="block text-white font-semibold mb-2 flex items-center gap-2">
+                  Taux de commission Guild Cart (%)
+                  <span className="bg-purple-600 text-white text-xs px-2 py-0.5 rounded-full">
+                    {settings.commissionRate === 5 ? 'FREE' : 
+                     settings.commissionRate === 3.5 ? 'STARTER' :
+                     settings.commissionRate === 2 ? 'PRO' : 'BUSINESS'}
+                  </span>
+                </label>
                 <input
                   type="number"
                   step="0.1"
-                  min="0"
-                  max="100"
                   value={settings.commissionRate}
-                  onChange={(e) => handleChange('commissionRate', parseFloat(e.target.value))}
-                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 transition-colors"
+                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-gray-500 cursor-not-allowed"
+                  disabled
                 />
+                <p className="text-yellow-500 text-xs mt-1 flex items-center gap-1">
+                  💡 Passez à un plan supérieur pour réduire la commission
+                </p>
               </div>
             </div>
           </div>
 
+          {/* Notifications */}
           <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 shadow-lg">
             <div className="flex items-center gap-3 mb-6">
               <Bell className="w-6 h-6 text-purple-500" />
@@ -332,6 +363,9 @@ export default function Settings() {
                   className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 transition-colors"
                   placeholder="https://discord.com/api/webhooks/..."
                 />
+                <p className="text-gray-500 text-xs mt-1">
+                  💡 Recevez une notification dans un salon Discord à chaque vente
+                </p>
               </div>
 
               <div className="flex items-center gap-3">
@@ -349,6 +383,7 @@ export default function Settings() {
             </div>
           </div>
 
+          {/* Bouton Enregistrer */}
           <div className="flex justify-end">
             <button
               type="submit"

@@ -9,12 +9,18 @@ interface ProductForm {
   name: string;
   description: string;
   price: string;
-  type: 'PDF' | 'ACCOUNT' | 'ROLE';
+  type: 'PDF' | 'SERIAL' | 'ROLE';
   stock: string;
   active: boolean;
   fileUrl?: string;
   roleId?: string;
   serialCredentials?: string;
+  // Abonnement rôles
+  roleDurationType?: 'permanent' | 'temporary' | 'lifetime';
+  roleDuration?: string;
+  roleAutoRenew?: boolean;
+  roleRequiresSubscription?: boolean;
+  roleGracePeriodDays?: string;
 }
 
 interface DiscordRole {
@@ -35,7 +41,6 @@ export default function AddProduct() {
   const [discordRoles, setDiscordRoles] = useState<DiscordRole[]>([]);
   const [loadingRoles, setLoadingRoles] = useState(false);
   
-  // 🆕 États pour la gestion des serials
   const [serialsText, setSerialsText] = useState('');
   const [serialSeparator, setSerialSeparator] = useState<'newline' | 'dot' | 'comma'>('newline');
   
@@ -46,12 +51,15 @@ export default function AddProduct() {
     type: 'PDF',
     stock: '',
     active: true,
+    roleDurationType: 'permanent',
+    roleDuration: '',
+    roleAutoRenew: false,
+    roleRequiresSubscription: false,
+    roleGracePeriodDays: '7',
   });
 
-  // 🆕 Parser les serials selon le séparateur
   const parseSerials = (text: string): string[] => {
     if (!text.trim()) return [];
-
     let entries: string[] = [];
     
     switch (serialSeparator) {
@@ -65,12 +73,9 @@ export default function AddProduct() {
         entries = text.split(',').filter(e => e.trim());
         break;
     }
-
-    // Retourner simplement les serials nettoyés
     return entries.map(e => e.trim()).filter(e => e.length > 0);
   };
 
-  // 🆕 Aperçu des serials parsés
   const parsedSerials = parseSerials(serialsText);
 
   useEffect(() => {
@@ -105,6 +110,17 @@ export default function AddProduct() {
     loadDiscordRoles();
   }, [form.type, selectedServerId]);
 
+  // 🆕 Effet pour désactiver le renouvellement si Lifetime est sélectionné
+  useEffect(() => {
+    if (form.roleDurationType === 'lifetime' && form.roleAutoRenew) {
+      setForm(prev => ({
+        ...prev,
+        roleAutoRenew: false,
+        roleRequiresSubscription: false,
+      }));
+    }
+  }, [form.roleDurationType]);
+
   const handleInputChange = (field: keyof ProductForm, value: any) => {
     setForm({ ...form, [field]: value });
     setError(null);
@@ -125,26 +141,24 @@ export default function AddProduct() {
     if (!allowedTypes.includes(file.type) && file.type !== 'application/octet-stream') {
       const ext = file.name.split('.').pop()?.toLowerCase();
       if (!['pdf', 'zip', 'rar'].includes(ext || '')) {
-        setError('Format non accepté. Formats autorisés : PDF, ZIP, RAR');
+        setError('Format non accepté. Formats acceptés : PDF, ZIP, RAR');
         return;
       }
-    }
-
-    if (file.size > 100 * 1024 * 1024) {
-      setError('Le fichier ne doit pas dépasser 100MB');
-      return;
     }
 
     try {
       setUploadingFile(true);
       setError(null);
-      
+
       const formData = new FormData();
       formData.append('file', file);
-      
+
       const response = await api.post('/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
       });
+
       handleInputChange('fileUrl', response.data.url);
     } catch (err: any) {
       console.error('Erreur upload:', err);
@@ -154,41 +168,61 @@ export default function AddProduct() {
     }
   };
 
-  const validateForm = (): boolean => {
-    if (!form.name.trim()) {
-      setError('Le nom du produit est requis');
-      return false;
-    }
-    if (!form.description.trim()) {
-      setError('La description est requise');
-      return false;
-    }
-    if (!form.price || parseFloat(form.price) <= 0) {
-      setError('Le prix doit être supérieur à 0');
-      return false;
-    }
-    if (form.type === 'PDF' && !form.fileUrl) {
-      setError('Veuillez uploader un fichier');
-      return false;
-    }
-    if (form.type === 'ROLE' && !form.roleId) {
-      setError('Veuillez sélectionner un rôle Discord');
-      return false;
-    }
-    if (form.type === 'ACCOUNT' && parsedSerials.length === 0) {
-      setError('Veuillez entrer au moins un serial/clé');
-      return false;
-    }
-    return true;
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!validateForm() || !selectedServerId) {
-      if (!selectedServerId) {
-        setError('Aucun serveur sélectionné');
+
+    if (!form.name.trim() || !form.description.trim() || !form.price) {
+      setError('Veuillez remplir tous les champs obligatoires');
+      return;
+    }
+
+    if (parseFloat(form.price) <= 0) {
+      setError('Le prix doit être supérieur à 0');
+      return;
+    }
+
+    if (form.type === 'PDF' && !form.fileUrl) {
+      setError('Veuillez uploader un fichier PDF');
+      return;
+    }
+
+    if (form.type === 'ROLE') {
+      if (!form.roleId) {
+        setError('Veuillez sélectionner un rôle Discord');
+        return;
       }
+      
+      // Validation durée temporaire
+      if (form.roleDurationType === 'temporary') {
+        if (!form.roleDuration || parseInt(form.roleDuration) <= 0) {
+          setError('La durée du rôle doit être supérieure à 0 jours');
+          return;
+        }
+      }
+      
+      // Validation abonnement
+      if (form.roleRequiresSubscription && !form.roleAutoRenew) {
+        setError('Si vous forcez l\'abonnement, le renouvellement automatique doit être activé');
+        return;
+      }
+
+      // Validation grace period
+      if (form.roleAutoRenew && form.roleGracePeriodDays) {
+        const graceDays = parseInt(form.roleGracePeriodDays);
+        if (graceDays < 1 || graceDays > 30) {
+          setError('La période de grâce doit être entre 1 et 30 jours');
+          return;
+        }
+      }
+    }
+
+    if (form.type === 'SERIAL' && parsedSerials.length === 0) {
+      setError('Veuillez ajouter au moins un serial');
+      return;
+    }
+
+    if (!selectedServerId) {
+      setError('Aucun serveur sélectionné');
       return;
     }
 
@@ -197,8 +231,8 @@ export default function AddProduct() {
       setError(null);
 
       const productData: any = {
-        name: form.name.trim(),
-        description: form.description.trim(),
+        name: form.name,
+        description: form.description,
         price: parseFloat(form.price),
         type: form.type,
         active: form.active,
@@ -209,8 +243,25 @@ export default function AddProduct() {
         productData.fileUrl = form.fileUrl;
       } else if (form.type === 'ROLE') {
         productData.discordRoleId = form.roleId;
-      } else if (form.type === 'ACCOUNT') {
-        // 🆕 Stocker les serials parsés en JSON (tableau de strings)
+        
+        // Configuration de la durée
+        if (form.roleDurationType === 'lifetime') {
+          productData.roleDuration = -1; // -1 = Lifetime
+          productData.roleAutoRenew = false;
+          productData.roleRequiresSubscription = false;
+        } else if (form.roleDurationType === 'temporary' && form.roleDuration) {
+          productData.roleDuration = parseInt(form.roleDuration);
+          productData.roleAutoRenew = form.roleAutoRenew || false;
+          productData.roleRequiresSubscription = form.roleRequiresSubscription || false;
+          
+          // Grace period seulement si renouvellement auto
+          if (form.roleAutoRenew && form.roleGracePeriodDays) {
+            productData.roleGracePeriodDays = parseInt(form.roleGracePeriodDays);
+          }
+        }
+        // Si permanent, on ne définit rien (null)
+        
+      } else if (form.type === 'SERIAL') {
         productData.serialCredentials = JSON.stringify(parsedSerials);
       }
 
@@ -241,16 +292,16 @@ export default function AddProduct() {
         <div className="text-center max-w-2xl p-8">
           <div className="text-6xl mb-6">🤖</div>
           <h2 className="text-3xl font-bold text-white mb-4">Aucun serveur Discord connecté</h2>
-          <p className="text-gray-400 mb-6 text-lg">
-            Vous devez d'abord inviter le bot Guild Cart sur votre serveur Discord.
+          <p className="text-gray-400 mb-8 text-lg">
+            Invitez le bot Guild Cart sur votre serveur Discord pour commencer à vendre vos produits.
           </p>
           <a
             href={DISCORD_INVITE_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-6 py-3 rounded-lg transition-colors"
+            className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-8 py-4 rounded-lg transition-colors shadow-lg"
           >
-            Inviter le bot sur mon serveur
+            Inviter Guild Cart
           </a>
         </div>
       </div>
@@ -260,14 +311,15 @@ export default function AddProduct() {
   return (
     <div className="flex-1 p-8 overflow-y-auto bg-slate-900">
       <div className="max-w-3xl mx-auto">
+        <button
+          onClick={() => navigate('/products')}
+          className="flex items-center gap-2 text-gray-400 hover:text-white mb-6 transition-colors"
+        >
+          <ArrowLeft className="w-5 h-5" />
+          Retour aux produits
+        </button>
+
         <div className="mb-8">
-          <button
-            onClick={() => navigate('/products')}
-            className="text-gray-400 hover:text-white mb-4 flex items-center gap-2 transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Retour aux produits
-          </button>
           <h1 className="text-3xl font-bold text-white mb-2">Ajouter un produit</h1>
           <p className="text-gray-400">Créez un nouveau produit pour votre boutique</p>
         </div>
@@ -282,9 +334,9 @@ export default function AddProduct() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="bg-gray-800 rounded-xl p-8 border border-gray-700 shadow-lg">
-          <div className="space-y-6">
-            {/* Nom du produit */}
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 space-y-4">
+            {/* Nom */}
             <div>
               <label className="block text-white font-semibold mb-2">
                 Nom du produit <span className="text-red-500">*</span>
@@ -294,7 +346,8 @@ export default function AddProduct() {
                 value={form.name}
                 onChange={(e) => handleInputChange('name', e.target.value)}
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 transition-colors"
-                placeholder="Ex: Pack Premium, Clé d'activation..."
+                placeholder="Ex: Rôle VIP Premium"
+                maxLength={100}
               />
             </div>
 
@@ -308,6 +361,7 @@ export default function AddProduct() {
                 onChange={(e) => handleInputChange('description', e.target.value)}
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 transition-colors h-32 resize-none"
                 placeholder="Décrivez votre produit..."
+                maxLength={500}
               />
             </div>
 
@@ -319,6 +373,7 @@ export default function AddProduct() {
               <input
                 type="number"
                 step="0.01"
+                min="0"
                 value={form.price}
                 onChange={(e) => handleInputChange('price', e.target.value)}
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 transition-colors"
@@ -326,186 +381,353 @@ export default function AddProduct() {
               />
             </div>
 
-            {/* Type de produit */}
+            {/* Type */}
             <div>
               <label className="block text-white font-semibold mb-2">
                 Type de produit <span className="text-red-500">*</span>
               </label>
               <select
                 value={form.type}
-                onChange={(e) => handleInputChange('type', e.target.value)}
+                onChange={(e) => handleInputChange('type', e.target.value as 'PDF' | 'SERIAL' | 'ROLE')}
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-purple-500 transition-colors"
               >
-                <option value="PDF">📄 Fichier numérique (PDF, ZIP, RAR)</option>
-                <option value="ACCOUNT">🔑 Serials / Clés / Codes</option>
+                <option value="PDF">📄 Fichier PDF</option>
+                <option value="SERIAL">🔑 Serial / Compte</option>
                 <option value="ROLE">👑 Rôle Discord</option>
               </select>
             </div>
 
-            {/* Section PDF */}
+            {/* FICHIER PDF */}
             {form.type === 'PDF' && (
               <div>
                 <label className="block text-white font-semibold mb-2">
-                  Fichier <span className="text-red-500">*</span>
+                  Fichier PDF <span className="text-red-500">*</span>
                 </label>
                 <div className="border-2 border-dashed border-gray-700 rounded-lg p-6 text-center hover:border-purple-500 transition-colors">
-                  <input
-                    type="file"
-                    accept=".pdf,.zip,.rar"
-                    onChange={handleFileUpload}
-                    className="hidden"
-                    id="file-upload"
-                  />
-                  <label htmlFor="file-upload" className="cursor-pointer">
-                    {uploadingFile ? (
-                      <div className="flex items-center justify-center gap-2">
-                        <Loader className="w-5 h-5 animate-spin text-purple-600" />
-                        <span className="text-gray-400">Upload en cours...</span>
+                  {form.fileUrl ? (
+                    <div className="space-y-3">
+                      <div className="text-green-400 flex items-center justify-center gap-2">
+                        <span className="text-2xl">✅</span>
+                        <span className="font-semibold">Fichier uploadé</span>
                       </div>
-                    ) : form.fileUrl ? (
-                      <div className="text-green-400">
-                        <p className="font-semibold">✓ Fichier uploadé</p>
-                        <p className="text-sm text-gray-400 mt-1">Cliquez pour remplacer</p>
-                      </div>
-                    ) : (
-                      <div>
-                        <Upload className="w-8 h-8 mx-auto mb-2 text-gray-400" />
-                        <p className="text-white font-semibold">Cliquez pour uploader</p>
-                        <p className="text-gray-400 text-sm mt-1">PDF, ZIP ou RAR (max 100MB)</p>
-                      </div>
-                    )}
-                  </label>
+                      <button
+                        type="button"
+                        onClick={() => handleInputChange('fileUrl', '')}
+                        className="text-red-400 hover:text-red-300 text-sm underline"
+                      >
+                        Changer le fichier
+                      </button>
+                    </div>
+                  ) : uploadingFile ? (
+                    <div className="flex items-center justify-center gap-2 text-gray-400">
+                      <Loader className="w-5 h-5 animate-spin" />
+                      <span>Upload en cours...</span>
+                    </div>
+                  ) : (
+                    <label className="cursor-pointer">
+                      <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                      <p className="text-white font-semibold mb-1">Cliquez pour uploader</p>
+                      <p className="text-gray-400 text-sm">PDF, ZIP ou RAR (max 50 MB)</p>
+                      <input
+                        type="file"
+                        accept=".pdf,.zip,.rar"
+                        onChange={handleFileUpload}
+                        className="hidden"
+                      />
+                    </label>
+                  )}
                 </div>
               </div>
             )}
 
-            {/* Section SERIALS (ACCOUNT) */}
-            {form.type === 'ACCOUNT' && (
+            {/* SERIAL */}
+            {form.type === 'SERIAL' && (
               <div className="space-y-4">
-                <div className="bg-blue-900/20 border border-blue-700 rounded-lg p-4">
-                  <p className="text-blue-400 text-sm mb-2">
-                    💡 <strong>Format :</strong> Entrez vos serials/clés/codes
-                  </p>
-                  <p className="text-blue-300 text-xs">
-                    Un serial par ligne, par point ou par virgule selon votre choix
-                  </p>
-                </div>
-
                 <div>
                   <label className="block text-white font-semibold mb-2">
-                    Séparateur <span className="text-red-500">*</span>
+                    Format des serials <span className="text-red-500">*</span>
                   </label>
-                  <select
-                    value={serialSeparator}
-                    onChange={(e) => setSerialSeparator(e.target.value as any)}
-                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-purple-500 transition-colors"
-                  >
-                    <option value="newline">Nouvelle ligne (chaque ligne = 1 serial)</option>
-                    <option value="dot">Point (.) - chaque point = 1 serial</option>
-                    <option value="comma">Virgule (,) - chaque virgule = 1 serial</option>
-                  </select>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSerialSeparator('newline')}
+                      className={`flex-1 px-4 py-2 rounded-lg transition-colors ${
+                        serialSeparator === 'newline'
+                          ? 'bg-purple-600 text-white'
+                          : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      }`}
+                    >
+                      Un par ligne
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSerialSeparator('dot')}
+                      className={`flex-1 px-4 py-2 rounded-lg transition-colors ${
+                        serialSeparator === 'dot'
+                          ? 'bg-purple-600 text-white'
+                          : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      }`}
+                    >
+                      Séparés par .
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSerialSeparator('comma')}
+                      className={`flex-1 px-4 py-2 rounded-lg transition-colors ${
+                        serialSeparator === 'comma'
+                          ? 'bg-purple-600 text-white'
+                          : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      }`}
+                    >
+                      Séparés par ,
+                    </button>
+                  </div>
                 </div>
 
                 <div>
                   <label className="block text-white font-semibold mb-2">
-                    Liste des serials/clés <span className="text-red-500">*</span>
+                    Liste des serials <span className="text-red-500">*</span>
                   </label>
                   <textarea
                     value={serialsText}
                     onChange={(e) => setSerialsText(e.target.value)}
                     className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 transition-colors h-40 resize-none font-mono text-sm"
                     placeholder={
-                      serialSeparator === 'newline' 
-                        ? 'XXXX-XXXX-XXXX-XXXX\nYYYY-YYYY-YYYY-YYYY\nZZZZ-ZZZZ-ZZZZ-ZZZZ'
+                      serialSeparator === 'newline'
+                        ? 'XXXX-XXXX-XXXX\nYYYY-YYYY-YYYY\nZZZZ-ZZZZ-ZZZZ'
                         : serialSeparator === 'dot'
-                        ? 'XXXX-XXXX-XXXX-XXXX.YYYY-YYYY-YYYY-YYYY.ZZZZ-ZZZZ-ZZZZ-ZZZZ'
-                        : 'XXXX-XXXX-XXXX-XXXX,YYYY-YYYY-YYYY-YYYY,ZZZZ-ZZZZ-ZZZZ-ZZZZ'
+                        ? 'XXXX-XXXX-XXXX.YYYY-YYYY-YYYY.ZZZZ-ZZZZ-ZZZZ'
+                        : 'XXXX-XXXX-XXXX,YYYY-YYYY-YYYY,ZZZZ-ZZZZ-ZZZZ'
                     }
                   />
-                  <p className="text-gray-500 text-xs mt-1">
-                    Format libre : clés produit, codes d'activation, identifiants, etc.
-                  </p>
-                </div>
-
-                {/* Aperçu des serials détectés */}
-                <div className="bg-gray-900 rounded-lg p-4 border border-gray-700">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-gray-400 text-sm">
-                      <strong>Serials détectés :</strong>
-                    </p>
-                    <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
-                      parsedSerials.length > 0 ? 'bg-green-500/20 text-green-400' : 'bg-gray-700 text-gray-400'
-                    }`}>
-                      {parsedSerials.length} serial{parsedSerials.length > 1 ? 's' : ''}
-                    </span>
-                  </div>
-                  
-                  {parsedSerials.length > 0 ? (
-                    <div className="mt-3 space-y-2 max-h-40 overflow-y-auto">
-                      {parsedSerials.map((serial, index) => (
-                        <div key={index} className="bg-gray-950 p-2 rounded text-xs flex items-center gap-2">
-                          <span className="text-green-400">#{index + 1}</span>
-                          <span className="text-blue-400 font-mono">{serial}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-gray-500 text-xs mt-2">
-                      Aucun serial détecté. Vérifiez le format.
+                  {parsedSerials.length > 0 && (
+                    <p className="text-green-400 text-sm mt-2">
+                      ✅ {parsedSerials.length} serial{parsedSerials.length > 1 ? 's' : ''} détecté{parsedSerials.length > 1 ? 's' : ''}
                     </p>
                   )}
                 </div>
               </div>
             )}
 
-            {/* Section ROLE */}
+            {/* RÔLE DISCORD */}
             {form.type === 'ROLE' && (
-              <div>
-                <label className="block text-white font-semibold mb-2">
-                  Rôle Discord <span className="text-red-500">*</span>
-                </label>
-                {loadingRoles ? (
-                  <div className="flex items-center gap-2 text-gray-400">
-                    <Loader className="w-4 h-4 animate-spin" />
-                    Chargement des rôles...
+              <div className="space-y-4">
+                {/* Sélection du rôle */}
+                <div>
+                  <label className="block text-white font-semibold mb-2">
+                    Rôle Discord <span className="text-red-500">*</span>
+                  </label>
+                  {loadingRoles ? (
+                    <div className="flex items-center gap-2 text-gray-400">
+                      <Loader className="w-4 h-4 animate-spin" />
+                      Chargement des rôles...
+                    </div>
+                  ) : discordRoles.length > 0 ? (
+                    <select
+                      value={form.roleId}
+                      onChange={(e) => handleInputChange('roleId', e.target.value)}
+                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-purple-500 transition-colors"
+                    >
+                      <option value="">Sélectionner un rôle</option>
+                      {discordRoles.map((role) => (
+                        <option key={role.id} value={role.id}>
+                          {role.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <p className="text-gray-400 text-sm">
+                      Aucun rôle assignable disponible
+                    </p>
+                  )}
+                </div>
+
+                {/* 🆕 Configuration de la durée */}
+                <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-lg p-4 space-y-4">
+                  <div className="flex items-center gap-2 text-indigo-400 font-semibold">
+                    <span className="text-xl">⏱️</span>
+                    <span>Configuration de la durée</span>
                   </div>
-                ) : discordRoles.length > 0 ? (
-                  <select
-                    value={form.roleId}
-                    onChange={(e) => handleInputChange('roleId', e.target.value)}
-                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-purple-500 transition-colors"
-                  >
-                    <option value="">Sélectionner un rôle</option>
-                    {discordRoles.map((role) => (
-                      <option key={role.id} value={role.id}>
-                        {role.name}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <p className="text-gray-400 text-sm">
-                    Aucun rôle assignable disponible
-                  </p>
-                )}
+
+                  {/* Type de durée */}
+                  <div>
+                    <label className="block text-white font-semibold mb-2">
+                      Type de durée <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      value={form.roleDurationType}
+                      onChange={(e) => handleInputChange('roleDurationType', e.target.value)}
+                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-purple-500 transition-colors"
+                    >
+                      <option value="permanent">♾️ Permanent (par défaut)</option>
+                      <option value="temporary">⏳ Temporaire (avec durée)</option>
+                      <option value="lifetime">💎 Lifetime (paiement unique à vie)</option>
+                    </select>
+                    <div className="mt-2 text-sm text-gray-400">
+                      {form.roleDurationType === 'permanent' && (
+                        <p>Le rôle est donné gratuitement ou inclus dans un autre achat</p>
+                      )}
+                      {form.roleDurationType === 'temporary' && (
+                        <p>Le rôle expire après une durée définie (peut être renouvelé automatiquement)</p>
+                      )}
+                      {form.roleDurationType === 'lifetime' && (
+                        <p>✨ Paiement unique, rôle conservé à vie (pas d'abonnement)</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Durée en jours (seulement si temporaire) */}
+                  {form.roleDurationType === 'temporary' && (
+                    <>
+                      <div>
+                        <label className="block text-white font-semibold mb-2">
+                          Durée en jours <span className="text-red-500">*</span>
+                        </label>
+                        <div className="grid grid-cols-2 gap-2 mb-2">
+                          {[7, 14, 30, 90].map(days => (
+                            <button
+                              key={days}
+                              type="button"
+                              onClick={() => handleInputChange('roleDuration', days.toString())}
+                              className={`px-4 py-2 rounded-lg transition-colors ${
+                                form.roleDuration === days.toString()
+                                  ? 'bg-purple-600 text-white'
+                                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                              }`}
+                            >
+                              {days} jours
+                            </button>
+                          ))}
+                        </div>
+                        <input
+                          type="number"
+                          min="1"
+                          value={form.roleDuration}
+                          onChange={(e) => handleInputChange('roleDuration', e.target.value)}
+                          className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 transition-colors"
+                          placeholder="Ou entrez un nombre personnalisé"
+                        />
+                      </div>
+
+                      {/* Renouvellement automatique */}
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          id="roleAutoRenew"
+                          checked={form.roleAutoRenew}
+                          onChange={(e) => handleInputChange('roleAutoRenew', e.target.checked)}
+                          className="w-5 h-5 rounded border-gray-700 bg-gray-900 text-purple-600 focus:ring-purple-500 focus:ring-offset-gray-800 mt-0.5"
+                        />
+                        <div>
+                          <label htmlFor="roleAutoRenew" className="text-white font-semibold cursor-pointer">
+                            🔄 Renouvellement automatique (Abonnement)
+                          </label>
+                          <p className="text-gray-400 text-sm mt-1">
+                            À la fin de la période, tentative automatique de renouvellement via Stripe.
+                            Le client peut annuler à tout moment.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Forcer l'abonnement */}
+                      {form.roleAutoRenew && (
+                        <>
+                          <div className="flex items-start gap-3">
+                            <input
+                              type="checkbox"
+                              id="roleRequiresSubscription"
+                              checked={form.roleRequiresSubscription}
+                              onChange={(e) => handleInputChange('roleRequiresSubscription', e.target.checked)}
+                              className="w-5 h-5 rounded border-gray-700 bg-gray-900 text-purple-600 focus:ring-purple-500 focus:ring-offset-gray-800 mt-0.5"
+                            />
+                            <div>
+                              <label htmlFor="roleRequiresSubscription" className="text-white font-semibold cursor-pointer">
+                                🔒 Forcer l'abonnement (carte bancaire uniquement)
+                              </label>
+                              <p className="text-gray-400 text-sm mt-1">
+                                Les clients devront utiliser une carte bancaire. Pas de crypto ni paiement unique.
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* 🆕 NOUVEAU : Grace Period */}
+                          <div>
+                            <label className="block text-white font-semibold mb-2">
+                              ⏰ Période de grâce (réessais de paiement)
+                            </label>
+                            <div className="grid grid-cols-3 gap-2 mb-2">
+                              {[3, 7, 14].map(days => (
+                                <button
+                                  key={days}
+                                  type="button"
+                                  onClick={() => handleInputChange('roleGracePeriodDays', days.toString())}
+                                  className={`px-4 py-2 rounded-lg transition-colors ${
+                                    form.roleGracePeriodDays === days.toString()
+                                      ? 'bg-yellow-600 text-white'
+                                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                                  }`}
+                                >
+                                  {days} jours
+                                </button>
+                              ))}
+                            </div>
+                            <input
+                              type="number"
+                              min="1"
+                              max="30"
+                              value={form.roleGracePeriodDays}
+                              onChange={(e) => handleInputChange('roleGracePeriodDays', e.target.value)}
+                              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 transition-colors"
+                              placeholder="Entre 1 et 30 jours"
+                            />
+                            <div className="mt-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
+                              <p className="text-yellow-400 text-sm">
+                                <span className="font-semibold">Comment ça fonctionne :</span><br/>
+                                Si le paiement échoue, {form.roleGracePeriodDays || 7} tentatives seront faites (1 par jour pendant {form.roleGracePeriodDays || 7} jours).
+                                Le client recevra un message Discord à chaque échec avec un lien pour mettre à jour sa carte bancaire.
+                                Si après {form.roleGracePeriodDays || 7} jours le paiement échoue toujours, le rôle sera retiré.
+                              </p>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )}
+
+                  {/* Message pour Lifetime */}
+                  {form.roleDurationType === 'lifetime' && (
+                    <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-3">
+                      <p className="text-green-400 text-sm flex items-start gap-2">
+                        <span className="text-lg">💎</span>
+                        <span>
+                          <span className="font-semibold">Lifetime activé :</span> Le client paie une seule fois et garde le rôle à vie.
+                          Parfait pour les accès VIP permanents ou les récompenses exclusives.
+                        </span>
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
             {/* Stock */}
-            <div>
-              <label className="block text-white font-semibold mb-2">
-                Stock (optionnel)
-              </label>
-              <input
-                type="number"
-                value={form.stock}
-                onChange={(e) => handleInputChange('stock', e.target.value)}
-                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 transition-colors"
-                placeholder="Laisser vide pour stock illimité"
-              />
-              <p className="text-gray-500 text-xs mt-1">
-                Si vous définissez un stock, le produit sera désactivé automatiquement quand il sera épuisé
-              </p>
-            </div>
+            {form.type !== 'ROLE' && (
+              <div>
+                <label className="block text-white font-semibold mb-2">
+                  Stock (optionnel)
+                </label>
+                <input
+                  type="number"
+                  value={form.stock}
+                  onChange={(e) => handleInputChange('stock', e.target.value)}
+                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 transition-colors"
+                  placeholder="Laisser vide pour stock illimité"
+                />
+                <p className="text-gray-500 text-xs mt-1">
+                  Le produit sera désactivé automatiquement quand le stock sera épuisé
+                </p>
+              </div>
+            )}
 
             {/* Actif */}
             <div className="flex items-center gap-3">

@@ -1,6 +1,8 @@
+// panel/src/pages/EditProduct.tsx - VERSION CORRIGÉE (Stock auto SERIAL)
+
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Save, Loader2, Upload, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, Upload, AlertCircle, Gift } from 'lucide-react';
 import { productsApi, discordApi } from '../lib/api';
 import api from '../lib/api';
 import { useServerSelection } from '../hooks/useServerSelection';
@@ -19,28 +21,21 @@ export default function EditProduct() {
   const [discordRoles, setDiscordRoles] = useState<any[]>([]);
   const [uploadingFile, setUploadingFile] = useState(false);
 
-  // Données du produit
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [price, setPrice] = useState('');
   const [productType, setProductType] = useState<ProductType>('PDF');
+  const [hasStockLimit, setHasStockLimit] = useState(false);
   const [stock, setStock] = useState<string>('');
   const [active, setActive] = useState(true);
-
-  // Spécifique PDF
   const [fileUrl, setFileUrl] = useState('');
-
-  // 🆕 Spécifique SERIALS (SERIAL)
+  const [bonusRoleId, setBonusRoleId] = useState('');
   const [serialsText, setSerialsText] = useState('');
   const [serialSeparator, setSerialSeparator] = useState<'newline' | 'dot' | 'comma'>('newline');
-
-  // Spécifique ROLE
   const [roleId, setRoleId] = useState('');
 
-  // 🆕 Parser les serials selon le séparateur
   const parseSerials = (text: string): string[] => {
     if (!text.trim()) return [];
-
     let entries: string[] = [];
     
     switch (serialSeparator) {
@@ -55,14 +50,11 @@ export default function EditProduct() {
         break;
     }
 
-    // Retourner simplement les serials nettoyés
     return entries.map(e => e.trim()).filter(e => e.length > 0);
   };
 
-  // 🆕 Aperçu des serials parsés
   const parsedSerials = parseSerials(serialsText);
 
-  // Charger le produit
   useEffect(() => {
     async function loadProduct() {
       if (!id) return;
@@ -76,8 +68,22 @@ export default function EditProduct() {
         setDescription(product.description);
         setPrice(product.price.toString());
         setProductType(product.type);
-        setStock(product.stock?.toString() || '');
         setActive(product.active);
+        setBonusRoleId(product.bonusRoleId || '');
+
+        // Gestion du stock
+        if (product.type === 'SERIAL') {
+          // Pour SERIAL, le stock est géré automatiquement
+          setHasStockLimit(false);
+        } else {
+          // Pour PDF/ROLE
+          if (product.stock !== null) {
+            setHasStockLimit(true);
+            setStock(product.stock.toString());
+          } else {
+            setHasStockLimit(false);
+          }
+        }
 
         if (product.type === 'PDF') {
           setFileUrl(product.fileUrl || '');
@@ -85,18 +91,12 @@ export default function EditProduct() {
           if (product.serialCredentials) {
             try {
               const serials = JSON.parse(product.serialCredentials);
-              
-              // Si c'est un tableau de strings (nouveau format)
               if (Array.isArray(serials) && typeof serials[0] === 'string') {
                 setSerialsText(serials.join('\n'));
-              }
-              // Rétrocompatibilité ancien format login:password
-              else if (Array.isArray(serials) && serials[0]?.login) {
+              } else if (Array.isArray(serials) && serials[0]?.login) {
                 const text = serials.map((acc: any) => `${acc.login}:${acc.password}`).join('\n');
                 setSerialsText(text);
-              }
-              // Si c'est un seul objet (ancien format)
-              else if (serials.login) {
+              } else if (serials.login) {
                 setSerialsText(`${serials.login}:${serials.password}`);
               }
             } catch (e) {
@@ -117,33 +117,24 @@ export default function EditProduct() {
     loadProduct();
   }, [id]);
 
-  // Charger les rôles Discord si type ROLE
   useEffect(() => {
     async function loadDiscordRoles() {
-      if (productType === 'ROLE' && selectedServerId) {
+      if ((productType === 'ROLE' || productType === 'PDF' || productType === 'SERIAL') && selectedServerId) {
         setLoadingRoles(true);
         try {
           const serverResponse = await api.get(`/servers/${selectedServerId}`);
           const server = serverResponse.data;
-          
-          if (!server.discordServerId) {
-            setError('Ce serveur n\'a pas d\'ID Discord associé');
-            setLoadingRoles(false);
-            return;
+          if (server.discordServerId) {
+            const rolesResponse = await discordApi.getGuildRoles(server.discordServerId);
+            setDiscordRoles(rolesResponse.data);
           }
-
-          const rolesResponse = await discordApi.getGuildRoles(server.discordServerId);
-          setDiscordRoles(rolesResponse.data);
-        } catch (error: any) {
-          console.error('Erreur chargement rôles:', error);
-          setError(error.response?.data?.message || 'Impossible de charger les rôles Discord');
-          setDiscordRoles([]);
+        } catch (err) {
+          console.error('Erreur chargement rôles:', err);
         } finally {
           setLoadingRoles(false);
         }
       }
     }
-
     loadDiscordRoles();
   }, [productType, selectedServerId]);
 
@@ -170,10 +161,8 @@ export default function EditProduct() {
     try {
       setUploadingFile(true);
       setError(null);
-      
       const formData = new FormData();
       formData.append('file', file);
-      
       const response = await api.post('/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
@@ -186,7 +175,6 @@ export default function EditProduct() {
     }
   };
 
-  // Sauvegarder les modifications
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
@@ -195,7 +183,6 @@ export default function EditProduct() {
       return;
     }
 
-    // Validation
     if (!name.trim()) {
       setError('Le nom du produit est requis');
       return;
@@ -232,17 +219,23 @@ export default function EditProduct() {
         active,
       };
 
-      if (stock.trim()) {
-        productData.stock = parseInt(stock);
-      }
-
-      if (productType === 'PDF') {
-        productData.fileUrl = fileUrl;
-      } else if (productType === 'SERIAL') {
-        // 🆕 Stocker les serials parsés en JSON (tableau de strings)
+      // 🆕 GESTION DU STOCK INTELLIGENT
+      if (productType === 'SERIAL') {
+        // Pour SERIAL : stock = nombre de serials (auto)
         productData.serialCredentials = JSON.stringify(parsedSerials);
+        productData.stock = parsedSerials.length;  // ✅ CORRIGÉ
+        if (bonusRoleId) {
+          productData.bonusRoleId = bonusRoleId;
+        }
+      } else if (productType === 'PDF') {
+        productData.fileUrl = fileUrl;
+        productData.stock = hasStockLimit ? parseInt(stock) : null;
+        if (bonusRoleId) {
+          productData.bonusRoleId = bonusRoleId;
+        }
       } else if (productType === 'ROLE') {
         productData.discordRoleId = roleId;
+        productData.stock = hasStockLimit ? parseInt(stock) : null;
       }
 
       await productsApi.updateProduct(id!, productData);
@@ -298,7 +291,6 @@ export default function EditProduct() {
 
         <form onSubmit={handleSubmit} className="bg-gray-800 rounded-xl p-8 border border-gray-700 shadow-lg">
           <div className="space-y-6">
-            {/* Nom du produit */}
             <div>
               <label className="block text-white font-semibold mb-2">
                 Nom du produit <span className="text-red-500">*</span>
@@ -308,11 +300,9 @@ export default function EditProduct() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 transition-colors"
-                placeholder="Ex: Pack Premium, Clé d'activation..."
               />
             </div>
 
-            {/* Description */}
             <div>
               <label className="block text-white font-semibold mb-2">
                 Description <span className="text-red-500">*</span>
@@ -321,11 +311,9 @@ export default function EditProduct() {
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 transition-colors h-32 resize-none"
-                placeholder="Décrivez votre produit..."
               />
             </div>
 
-            {/* Prix */}
             <div>
               <label className="block text-white font-semibold mb-2">
                 Prix (€) <span className="text-red-500">*</span>
@@ -336,124 +324,124 @@ export default function EditProduct() {
                 value={price}
                 onChange={(e) => setPrice(e.target.value)}
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 transition-colors"
-                placeholder="9.99"
               />
             </div>
 
-            {/* Type de produit (non modifiable) */}
             <div>
-              <label className="block text-white font-semibold mb-2">
-                Type de produit
-              </label>
+              <label className="block text-white font-semibold mb-2">Type de produit</label>
               <div className="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-gray-400">
                 {productType === 'PDF' && '📄 Fichier numérique (PDF, ZIP, RAR)'}
                 {productType === 'SERIAL' && '🔑 Serials / Clés / Codes'}
                 {productType === 'ROLE' && '👑 Rôle Discord'}
               </div>
-              <p className="text-gray-500 text-xs mt-1">
-                Le type de produit ne peut pas être modifié
-              </p>
+              <p className="text-gray-500 text-xs mt-1">Le type de produit ne peut pas être modifié</p>
             </div>
 
-            {/* Section PDF */}
             {productType === 'PDF' && (
-              <div>
-                <label className="block text-white font-semibold mb-2">
-                  Fichier <span className="text-red-500">*</span>
-                </label>
-                <div className="border-2 border-dashed border-gray-700 rounded-lg p-6 text-center hover:border-purple-500 transition-colors">
-                  <input
-                    type="file"
-                    accept=".pdf,.zip,.rar"
-                    onChange={handleFileUpload}
-                    className="hidden"
-                    id="file-upload"
-                  />
-                  <label htmlFor="file-upload" className="cursor-pointer">
-                    {uploadingFile ? (
-                      <div className="flex items-center justify-center gap-2">
-                        <Loader2 className="w-5 h-5 animate-spin text-purple-600" />
-                        <span className="text-gray-400">Upload en cours...</span>
-                      </div>
-                    ) : fileUrl ? (
-                      <div className="text-green-400">
-                        <p className="font-semibold">✓ Fichier présent</p>
-                        <p className="text-sm text-gray-400 mt-1">Cliquez pour remplacer</p>
-                      </div>
-                    ) : (
-                      <div>
-                        <Upload className="w-8 h-8 mx-auto mb-2 text-gray-400" />
-                        <p className="text-white font-semibold">Cliquez pour uploader</p>
-                        <p className="text-gray-400 text-sm mt-1">PDF, ZIP ou RAR (max 100MB)</p>
-                      </div>
-                    )}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-white font-semibold mb-2">
+                    Fichier <span className="text-red-500">*</span>
                   </label>
+                  <div className="border-2 border-dashed border-gray-700 rounded-lg p-6 text-center hover:border-purple-500 transition-colors">
+                    <input
+                      type="file"
+                      accept=".pdf,.zip,.rar"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                      id="file-upload"
+                    />
+                    <label htmlFor="file-upload" className="cursor-pointer">
+                      {uploadingFile ? (
+                        <div className="flex items-center justify-center gap-2">
+                          <Loader2 className="w-5 h-5 animate-spin text-purple-600" />
+                          <span className="text-gray-400">Upload en cours...</span>
+                        </div>
+                      ) : fileUrl ? (
+                        <div className="text-green-400">
+                          <p className="font-semibold">✓ Fichier présent</p>
+                          <p className="text-sm text-gray-400 mt-1">Cliquez pour remplacer</p>
+                        </div>
+                      ) : (
+                        <div>
+                          <Upload className="w-8 h-8 mx-auto mb-2 text-gray-400" />
+                          <p className="text-white font-semibold">Cliquez pour uploader</p>
+                          <p className="text-gray-400 text-sm mt-1">PDF, ZIP ou RAR (max 100MB)</p>
+                        </div>
+                      )}
+                    </label>
+                  </div>
+                </div>
+
+                {/* Bonus Role pour PDF */}
+                <div className="bg-purple-900/20 border border-purple-700 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Gift className="w-5 h-5 text-purple-400" />
+                    <h3 className="text-purple-400 font-semibold">Bonus : Rôle Discord</h3>
+                  </div>
+                  {loadingRoles ? (
+                    <div className="flex items-center gap-2 text-gray-400">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Chargement...
+                    </div>
+                  ) : discordRoles.length > 0 ? (
+                    <select
+                      value={bonusRoleId}
+                      onChange={(e) => setBonusRoleId(e.target.value)}
+                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-purple-500 transition-colors"
+                    >
+                      <option value="">Aucun rôle bonus</option>
+                      {discordRoles.map((role) => (
+                        <option key={role.id} value={role.id}>{role.name}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <p className="text-gray-400 text-sm">Aucun rôle disponible</p>
+                  )}
                 </div>
               </div>
             )}
 
-            {/* Section SERIALS (SERIAL) */}
             {productType === 'SERIAL' && (
               <div className="space-y-4">
                 <div className="bg-blue-900/20 border border-blue-700 rounded-lg p-4">
-                  <p className="text-blue-400 text-sm mb-2">
-                    💡 <strong>Format :</strong> Entrez vos serials/clés/codes
-                  </p>
-                  <p className="text-blue-300 text-xs">
-                    Un serial par ligne, par point ou par virgule selon votre choix
+                  <p className="text-blue-400 text-sm">
+                    💡 Modifiez la liste pour ajuster le stock automatiquement
                   </p>
                 </div>
 
                 <div>
-                  <label className="block text-white font-semibold mb-2">
-                    Séparateur <span className="text-red-500">*</span>
-                  </label>
+                  <label className="block text-white font-semibold mb-2">Séparateur</label>
                   <select
                     value={serialSeparator}
                     onChange={(e) => setSerialSeparator(e.target.value as any)}
                     className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-purple-500 transition-colors"
                   >
-                    <option value="newline">Nouvelle ligne (chaque ligne = 1 serial)</option>
-                    <option value="dot">Point (.) - chaque point = 1 serial</option>
-                    <option value="comma">Virgule (,) - chaque virgule = 1 serial</option>
+                    <option value="newline">Nouvelle ligne</option>
+                    <option value="dot">Point (.)</option>
+                    <option value="comma">Virgule (,)</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-white font-semibold mb-2">
-                    Liste des serials/clés <span className="text-red-500">*</span>
-                  </label>
+                  <label className="block text-white font-semibold mb-2">Liste des serials</label>
                   <textarea
                     value={serialsText}
                     onChange={(e) => setSerialsText(e.target.value)}
                     className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 transition-colors h-40 resize-none font-mono text-sm"
-                    placeholder={
-                      serialSeparator === 'newline' 
-                        ? 'XXXX-XXXX-XXXX-XXXX\nYYYY-YYYY-YYYY-YYYY\nZZZZ-ZZZZ-ZZZZ-ZZZZ'
-                        : serialSeparator === 'dot'
-                        ? 'XXXX-XXXX-XXXX-XXXX.YYYY-YYYY-YYYY-YYYY.ZZZZ-ZZZZ-ZZZZ-ZZZZ'
-                        : 'XXXX-XXXX-XXXX-XXXX,YYYY-YYYY-YYYY-YYYY,ZZZZ-ZZZZ-ZZZZ-ZZZZ'
-                    }
                   />
-                  <p className="text-gray-500 text-xs mt-1">
-                    Format libre : clés produit, codes d'activation, identifiants, etc.
-                  </p>
                 </div>
 
-                {/* Aperçu des serials détectés */}
                 <div className="bg-gray-900 rounded-lg p-4 border border-gray-700">
                   <div className="flex items-center justify-between mb-2">
-                    <p className="text-gray-400 text-sm">
-                      <strong>Serials détectés :</strong>
-                    </p>
+                    <p className="text-gray-400 text-sm"><strong>Serials détectés :</strong></p>
                     <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
                       parsedSerials.length > 0 ? 'bg-green-500/20 text-green-400' : 'bg-gray-700 text-gray-400'
                     }`}>
                       {parsedSerials.length} serial{parsedSerials.length > 1 ? 's' : ''}
                     </span>
                   </div>
-                  
-                  {parsedSerials.length > 0 ? (
+                  {parsedSerials.length > 0 && (
                     <div className="mt-3 space-y-2 max-h-40 overflow-y-auto">
                       {parsedSerials.map((serial, index) => (
                         <div key={index} className="bg-gray-950 p-2 rounded text-xs flex items-center gap-2">
@@ -462,16 +450,45 @@ export default function EditProduct() {
                         </div>
                       ))}
                     </div>
+                  )}
+                </div>
+
+                {/* Stock auto pour SERIAL */}
+                <div className="bg-green-900/20 border border-green-700 rounded-lg p-4">
+                  <p className="text-green-400 text-sm">
+                    ✅ <strong>Stock auto :</strong> {parsedSerials.length} serial{parsedSerials.length > 1 ? 's' : ''}
+                  </p>
+                </div>
+
+                {/* Bonus Role pour SERIAL */}
+                <div className="bg-purple-900/20 border border-purple-700 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Gift className="w-5 h-5 text-purple-400" />
+                    <h3 className="text-purple-400 font-semibold">Bonus : Rôle Discord</h3>
+                  </div>
+                  {loadingRoles ? (
+                    <div className="flex items-center gap-2 text-gray-400">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Chargement...
+                    </div>
+                  ) : discordRoles.length > 0 ? (
+                    <select
+                      value={bonusRoleId}
+                      onChange={(e) => setBonusRoleId(e.target.value)}
+                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-purple-500 transition-colors"
+                    >
+                      <option value="">Aucun rôle bonus</option>
+                      {discordRoles.map((role) => (
+                        <option key={role.id} value={role.id}>{role.name}</option>
+                      ))}
+                    </select>
                   ) : (
-                    <p className="text-gray-500 text-xs mt-2">
-                      Aucun serial détecté. Vérifiez le format.
-                    </p>
+                    <p className="text-gray-400 text-sm">Aucun rôle disponible</p>
                   )}
                 </div>
               </div>
             )}
 
-            {/* Section ROLE */}
             {productType === 'ROLE' && (
               <div>
                 <label className="block text-white font-semibold mb-2">
@@ -480,7 +497,7 @@ export default function EditProduct() {
                 {loadingRoles ? (
                   <div className="flex items-center gap-2 text-gray-400">
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Chargement des rôles...
+                    Chargement...
                   </div>
                 ) : discordRoles.length > 0 ? (
                   <select
@@ -490,37 +507,48 @@ export default function EditProduct() {
                   >
                     <option value="">Sélectionner un rôle</option>
                     {discordRoles.map((role) => (
-                      <option key={role.id} value={role.id}>
-                        {role.name}
-                      </option>
+                      <option key={role.id} value={role.id}>{role.name}</option>
                     ))}
                   </select>
                 ) : (
-                  <p className="text-gray-400 text-sm">
-                    Aucun rôle assignable disponible
-                  </p>
+                  <p className="text-gray-400 text-sm">Aucun rôle disponible</p>
                 )}
               </div>
             )}
 
-            {/* Stock */}
-            <div>
-              <label className="block text-white font-semibold mb-2">
-                Stock (optionnel)
-              </label>
-              <input
-                type="number"
-                value={stock}
-                onChange={(e) => setStock(e.target.value)}
-                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 transition-colors"
-                placeholder="Laisser vide pour stock illimité"
-              />
-              <p className="text-gray-500 text-xs mt-1">
-                Si vous définissez un stock, le produit sera désactivé automatiquement quand il sera épuisé
-              </p>
-            </div>
+            {/* Stock pour PDF/ROLE uniquement */}
+            {(productType === 'PDF' || productType === 'ROLE') && (
+              <div>
+                <div className="flex items-center gap-3 mb-3">
+                  <input
+                    type="checkbox"
+                    id="hasStockLimit"
+                    checked={hasStockLimit}
+                    onChange={(e) => setHasStockLimit(e.target.checked)}
+                    className="w-5 h-5 rounded border-gray-700 bg-gray-900 text-purple-600 focus:ring-purple-500"
+                  />
+                  <label htmlFor="hasStockLimit" className="text-white font-semibold cursor-pointer">
+                    Limiter le stock
+                  </label>
+                </div>
+                
+                {hasStockLimit && (
+                  <input
+                    type="number"
+                    value={stock}
+                    onChange={(e) => setStock(e.target.value)}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 transition-colors"
+                    placeholder="Ex: 100"
+                    min="1"
+                  />
+                )}
+                
+                {!hasStockLimit && (
+                  <p className="text-gray-500 text-sm">♾️ Stock illimité</p>
+                )}
+              </div>
+            )}
 
-            {/* Actif */}
             <div className="flex items-center gap-3">
               <input
                 type="checkbox"
@@ -530,11 +558,10 @@ export default function EditProduct() {
                 className="w-5 h-5 rounded bg-gray-900 border-gray-700 text-purple-600 focus:ring-purple-500"
               />
               <label htmlFor="active" className="text-white font-semibold">
-                Produit actif (visible dans la boutique)
+                Produit actif
               </label>
             </div>
 
-            {/* Boutons */}
             <div className="flex gap-4 pt-4">
               <button
                 type="button"
@@ -556,7 +583,7 @@ export default function EditProduct() {
                 ) : (
                   <>
                     <Save className="w-5 h-5" />
-                    Sauvegarder les modifications
+                    Enregistrer
                   </>
                 )}
               </button>

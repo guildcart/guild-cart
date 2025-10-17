@@ -1,7 +1,10 @@
+// backend/src/products/products.service.ts - AVEC ABONNEMENT RÔLES
+
 import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProductType } from '@prisma/client';
@@ -22,8 +25,13 @@ export class ProductsService {
       type: ProductType;
       fileUrl?: string;
       discordRoleId?: string;
-      serialCredentials?: string;  // 🆕 RENOMMÉ (ancien: accountCredentials)
+      serialCredentials?: string;
       stock?: number;
+      // 🆕 NOUVEAU : Abonnement rôles
+      roleDuration?: number;
+      roleAutoRenew?: boolean;
+      roleRequiresSubscription?: boolean;
+      roleGracePeriodDays?: number;
     },
   ) {
     // Vérifier que l'utilisateur est propriétaire du serveur
@@ -33,6 +41,58 @@ export class ProductsService {
 
     if (!server || server.ownerId !== userId) {
       throw new ForbiddenException('You do not own this server');
+    }
+
+    // ✅ NOUVELLE VALIDATION : Abonnement rôles
+    if (data.type === 'ROLE' && data.roleDuration !== undefined) {
+      // Si Lifetime (-1), pas de renouvellement auto
+      if (data.roleDuration === -1) {
+        if (data.roleAutoRenew) {
+          throw new BadRequestException(
+            'Les rôles Lifetime ne peuvent pas avoir de renouvellement automatique',
+          );
+        }
+        if (data.roleRequiresSubscription) {
+          throw new BadRequestException(
+            'Les rôles Lifetime ne peuvent pas forcer l\'abonnement',
+          );
+        }
+      }
+      
+      // Si renouvellement requis sans renouvellement auto, erreur
+      if (data.roleRequiresSubscription && !data.roleAutoRenew) {
+        throw new BadRequestException(
+          'Si vous forcez l\'abonnement, le renouvellement automatique doit être activé',
+        );
+      }
+
+      // Si renouvellement auto mais pas de durée, erreur
+      if (data.roleAutoRenew && (!data.roleDuration || data.roleDuration <= 0)) {
+        throw new BadRequestException(
+          'Le renouvellement automatique nécessite une durée de rôle définie (> 0 jours)',
+        );
+      }
+
+      // Si durée temporaire invalide
+      if (data.roleDuration && data.roleDuration !== -1 && data.roleDuration <= 0) {
+        throw new BadRequestException(
+          'La durée du rôle doit être supérieure à 0 jours, ou -1 pour Lifetime',
+        );
+      }
+
+      // Validation grace period
+      if (data.roleGracePeriodDays !== undefined) {
+        if (!data.roleAutoRenew) {
+          throw new BadRequestException(
+            'La période de grâce nécessite le renouvellement automatique',
+          );
+        }
+        if (data.roleGracePeriodDays < 1 || data.roleGracePeriodDays > 30) {
+          throw new BadRequestException(
+            'La période de grâce doit être entre 1 et 30 jours',
+          );
+        }
+      }
     }
 
     return this.prisma.product.create({
@@ -75,7 +135,6 @@ export class ProductsService {
     return product;
   }
 
-  // 🆕 MODIFIÉ : Supprimer l'ancien fichier si remplacé
   async update(
     id: string,
     userId: string,
@@ -85,34 +144,69 @@ export class ProductsService {
       price: number;
       fileUrl: string;
       discordRoleId: string;
-      serialCredentials: string;  // 🆕 RENOMMÉ (ancien: accountCredentials)
+      serialCredentials: string;
       stock: number;
       active: boolean;
+      // 🆕 NOUVEAU : Abonnement rôles
+      roleDuration: number;
+      roleAutoRenew: boolean;
+      roleRequiresSubscription: boolean;
     }>,
   ) {
-    const product = await this.findOne(id);
-    const server = await this.prisma.server.findUnique({
-      where: { id: product.serverId },
+    // Vérifier que l'utilisateur est propriétaire du serveur
+    const product = await this.prisma.product.findUnique({
+      where: { id },
+      include: { server: true },
     });
 
-    if (!server || server.ownerId !== userId) {
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    if (product.server.ownerId !== userId) {
       throw new ForbiddenException('You do not own this server');
     }
 
-    // 🆕 Si c'est un PDF et que l'URL a changé, supprimer l'ancien fichier
-    if (product.type === 'PDF' && data.fileUrl && product.fileUrl !== data.fileUrl) {
+    // ✅ NOUVELLE VALIDATION : Si on modifie les paramètres d'abonnement
+    if (product.type === 'ROLE') {
+      const newRoleRequiresSubscription = data.roleRequiresSubscription ?? product.roleRequiresSubscription;
+      const newRoleAutoRenew = data.roleAutoRenew ?? product.roleAutoRenew;
+      const newRoleDuration = data.roleDuration ?? product.roleDuration;
+
+      if (newRoleRequiresSubscription && !newRoleAutoRenew) {
+        throw new BadRequestException(
+          'Si vous forcez l\'abonnement, le renouvellement automatique doit être activé',
+        );
+      }
+
+      if (newRoleAutoRenew && !newRoleDuration) {
+        throw new BadRequestException(
+          'Le renouvellement automatique nécessite une durée de rôle définie',
+        );
+      }
+
+      if (data.roleDuration !== undefined && data.roleDuration <= 0) {
+        throw new BadRequestException(
+          'La durée du rôle doit être supérieure à 0 jours',
+        );
+      }
+    }
+
+    // Si on change le fichier, supprimer l'ancien
+    if (data.fileUrl && product.fileUrl && product.fileUrl !== data.fileUrl) {
       try {
-        const oldFileName = product.fileUrl.split('/uploads/').pop();
-        if (oldFileName) {
-          const oldFilePath = path.join(process.cwd(), 'uploads', oldFileName);
-          if (fs.existsSync(oldFilePath)) {
-            fs.unlinkSync(oldFilePath);
-            console.log(`✅ Ancien fichier PDF supprimé: ${oldFilePath}`);
-          }
+        const oldFilePath = path.join(
+          __dirname,
+          '..',
+          '..',
+          'uploads',
+          path.basename(product.fileUrl),
+        );
+        if (fs.existsSync(oldFilePath)) {
+          fs.unlinkSync(oldFilePath);
         }
       } catch (error) {
-        console.error('⚠️ Erreur suppression ancien fichier:', error);
-        // On continue quand même la mise à jour
+        console.error('Erreur lors de la suppression de l\'ancien fichier:', error);
       }
     }
 
@@ -122,33 +216,36 @@ export class ProductsService {
     });
   }
 
-  // 🆕 MODIFIÉ : Supprimer le fichier physique lors de la suppression
   async delete(id: string, userId: string) {
-    const product = await this.findOne(id);
-    const server = await this.prisma.server.findUnique({
-      where: { id: product.serverId },
+    // Vérifier que l'utilisateur est propriétaire du serveur
+    const product = await this.prisma.product.findUnique({
+      where: { id },
+      include: { server: true },
     });
 
-    if (!server || server.ownerId !== userId) {
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    if (product.server.ownerId !== userId) {
       throw new ForbiddenException('You do not own this server');
     }
 
-    // Si c'est un produit PDF avec un fichier uploadé localement
+    // Supprimer le fichier si c'est un PDF
     if (product.type === 'PDF' && product.fileUrl) {
       try {
-        const fileName = product.fileUrl.split('/uploads/').pop();
-        
-        if (fileName) {
-          const filePath = path.join(process.cwd(), 'uploads', fileName);
-          
-          if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
-            console.log(`✅ Fichier supprimé: ${filePath}`);
-          }
+        const filePath = path.join(
+          __dirname,
+          '..',
+          '..',
+          'uploads',
+          path.basename(product.fileUrl),
+        );
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
         }
       } catch (error) {
         console.error('Erreur lors de la suppression du fichier:', error);
-        // On continue quand même la suppression du produit en BDD
       }
     }
 
@@ -157,28 +254,48 @@ export class ProductsService {
     });
   }
 
-  async decrementStock(id: string) {
-    const product = await this.findOne(id);
-    
-    if (product.stock !== null && product.stock <= 0) {
-      throw new Error('Product out of stock');
-    }
+  // 🆕 NOUVEAU : Méthode pour vérifier les rôles expirés (à appeler via cron)
+  async checkExpiredRoles() {
+    const now = new Date();
 
-    if (product.stock !== null) {
-      return this.prisma.product.update({
-        where: { id },
-        data: {
-          stock: { decrement: 1 },
-          salesCount: { increment: 1 },
+    // Trouver tous les abonnements de rôles expirés
+    const expiredSubscriptions = await this.prisma.roleSubscription.findMany({
+      where: {
+        currentPeriodEnd: {
+          lte: now,
         },
-      });
-    }
-
-    return this.prisma.product.update({
-      where: { id },
-      data: {
-        salesCount: { increment: 1 },
+        status: 'ACTIVE',
+      },
+      include: {
+        product: true,
+        user: true,
+        server: true,
       },
     });
+
+    console.log(`🔍 ${expiredSubscriptions.length} abonnements de rôles expirés trouvés`);
+
+    // Pour chaque abonnement expiré
+    for (const subscription of expiredSubscriptions) {
+      // Si le produit a le renouvellement auto, Stripe gère ça via webhooks
+      // Sinon, on retire le rôle
+      if (!subscription.product.roleAutoRenew) {
+        console.log(`⏱️ Rôle expiré pour ${subscription.user.username} - Retrait du rôle`);
+        
+        // TODO: Implémenter le retrait du rôle Discord via le bot
+        // await removeDiscordRole(subscription.server.discordServerId, subscription.user.discordId, subscription.product.discordRoleId);
+
+        // Marquer l'abonnement comme expiré
+        await this.prisma.roleSubscription.update({
+          where: { id: subscription.id },
+          data: { status: 'EXPIRED' },
+        });
+      }
+    }
+
+    return {
+      checked: expiredSubscriptions.length,
+      expired: expiredSubscriptions.filter(s => !s.product.roleAutoRenew).length,
+    };
   }
 }

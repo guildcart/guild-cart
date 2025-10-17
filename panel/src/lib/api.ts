@@ -56,17 +56,18 @@ export const serversApi = {
 
 // ==================== PRODUCTS API ====================
 export const productsApi = {
-  // Récupérer tous les produits d'un serveur
-  getServerProducts: (serverId: string) => api.get(`/products/server/${serverId}`),
+  // ✅ CORRIGÉ : Récupérer TOUS les produits (actifs ET inactifs) pour le panel admin
+  getServerProducts: (serverId: string) => 
+    api.get(`/products/server/${serverId}?activeOnly=false`),
   
-  // 🆕 Récupérer un produit spécifique
+  // Récupérer un produit spécifique
   getProduct: (id: string) => api.get(`/products/${id}`),
   
   // Créer un nouveau produit
   createProduct: (serverId: string, data: any) => 
     api.post(`/products/server/${serverId}`, data),
   
-  // 🆕 Mettre à jour un produit
+  // Mettre à jour un produit
   updateProduct: (id: string, data: any) => 
     api.patch(`/products/${id}`, data),
   
@@ -81,43 +82,27 @@ export const ordersApi = {
   getMyOrders: () => api.get('/users/my-orders'),
   
   // Récupérer les commandes d'un serveur
-  getServerOrders: (serverId: string) => 
-    api.get(`/orders/server/${serverId}`),
-  
-  // Récupérer une commande spécifique
-  getOrder: (id: string) => api.get(`/orders/${id}`),
+  getServerOrders: (serverId: string) => api.get(`/orders/server/${serverId}`),
+};
+
+// ==================== DISCORD API ====================
+export const discordApi = {
+  // Récupérer les rôles Discord d'un serveur
+  getGuildRoles: (guildId: string) => api.get(`/discord/${guildId}/roles`),
 };
 
 // ==================== UPLOAD API ====================
 export const uploadApi = {
   // Upload un fichier
-  uploadFile: async (file: File) => {
+  uploadFile: (file: File) => {
     const formData = new FormData();
     formData.append('file', file);
-    
-    const response = await api.post('/upload', formData, {
+    return api.post('/upload', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
     });
-    return response.data.url; // Retourne directement l'URL
   },
 };
 
-// ==================== DISCORD API ====================
-export const discordApi = {
-  // Récupérer les rôles d'un serveur Discord
-  getGuildRoles: (guildId: string) => api.get(`/discord/${guildId}/roles`),
-};
-
-// ==================== USERS API ====================
-export const usersApi = {
-  // Récupérer le profil de l'utilisateur
-  getProfile: () => api.get('/users/me'),
-  
-  // Mettre à jour le profil
-  updateProfile: (data: any) => api.patch('/users/me', data),
-};
-
-// Export par défaut de l'instance axios
 export default api;

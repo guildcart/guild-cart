@@ -1,4 +1,4 @@
-// backend/src/servers/servers.service.ts - CORRIGÉ
+// backend/src/servers/servers.service.ts - CORRIGÉ FINAL
 
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
@@ -14,21 +14,8 @@ export class ServersService {
     description?: string;
     ownerId: string;
   }) {
-    const existing = await this.prisma.server.findUnique({
-      where: { discordServerId: data.discordServerId },
-    });
-
-    if (existing) {
-      throw new Error('Server already registered');
-    }
-
     return this.prisma.server.create({
-      data: {
-        ...data,
-        subscriptionTier: SubscriptionTier.FREE,
-        commissionRate: 5.0,
-        primaryColor: '#7C3AED',
-      },
+      data,
     });
   }
 
@@ -38,8 +25,9 @@ export class ServersService {
       include: {
         owner: {
           select: {
+            id: true,
             username: true,
-            discordId: true,
+            email: true,
           },
         },
         _count: {
@@ -59,12 +47,15 @@ export class ServersService {
   }
 
   async findByDiscordId(discordServerId: string) {
-    return this.prisma.server.findUnique({
+    const server = await this.prisma.server.findUnique({
       where: { discordServerId },
-      include: {
-        owner: true,
-      },
     });
+
+    if (!server) {
+      throw new NotFoundException('Server not found');
+    }
+
+    return server;
   }
 
   async update(
@@ -74,69 +65,82 @@ export class ServersService {
       shopName: string;
       description: string;
       primaryColor: string;
+      stripePublicKey: string;
+      stripeSecretKey: string;
+      webhookUrl: string;
+      notifyOnSale: boolean;
       active: boolean;
     }>,
   ) {
-    const server = await this.findOne(id);
+    // Vérifier que l'utilisateur est propriétaire du serveur
+    const server = await this.prisma.server.findUnique({
+      where: { id },
+    });
 
-    if (server.ownerId !== userId) {
+    if (!server || server.ownerId !== userId) {
       throw new ForbiddenException('You do not own this server');
     }
 
     return this.prisma.server.update({
       where: { id },
-      data,
+      data: {
+        ...(data.shopName && { shopName: data.shopName }),
+        ...(data.description !== undefined && { description: data.description }),
+        ...(data.primaryColor && { primaryColor: data.primaryColor }),
+        ...(data.stripePublicKey !== undefined && { stripePublicKey: data.stripePublicKey }),
+        ...(data.stripeSecretKey !== undefined && { stripeSecretKey: data.stripeSecretKey }),
+        ...(data.webhookUrl !== undefined && { webhookUrl: data.webhookUrl }),
+        ...(data.notifyOnSale !== undefined && { notifyOnSale: data.notifyOnSale }),
+        ...(data.active !== undefined && { active: data.active }),
+      },
     });
   }
 
-  // 🆕 CORRIGÉ : Ajout de activeProducts
   async getStats(id: string) {
-    const server = await this.findOne(id);
-
-    const totalRevenue = await this.prisma.order.aggregate({
-      where: {
-        serverId: id,
-        status: 'COMPLETED',
-      },
-      _sum: {
-        amount: true,
-      },
-    });
-
-    const totalOrders = await this.prisma.order.count({
-      where: {
-        serverId: id,
-        status: 'COMPLETED',
+    const server = await this.prisma.server.findUnique({
+      where: { id },
+      include: {
+        // ✅ CORRIGÉ : Charger TOUS les produits (pas de filtre active: true)
+        products: true,
+        orders: {
+          where: { status: 'COMPLETED' },
+        },
       },
     });
 
-    const totalProducts = await this.prisma.product.count({
-      where: { serverId: id },
-    });
+    if (!server) {
+      throw new NotFoundException('Server not found');
+    }
 
-    // 🆕 Compter les produits actifs
-    const activeProducts = await this.prisma.product.count({
-      where: { 
-        serverId: id,
-        active: true,
-      },
-    });
+    const totalRevenue = server.orders.reduce(
+      (sum, order) => sum + order.amount,
+      0,
+    );
+
+    const totalOrders = server.orders.length;
+
+    // ✅ CORRIGÉ : Compter TOUS les produits (actifs + inactifs)
+    const totalProducts = server.products.length;
+
+    // ✅ CORRIGÉ : Filtrer ensuite pour avoir seulement les actifs
+    const activeProducts = server.products.filter(
+      (product) => product.active,
+    ).length;
 
     return {
-      totalRevenue: totalRevenue._sum.amount || 0,
+      totalRevenue,
       totalOrders,
       totalProducts,
-      activeProducts,  // 🆕 Ajouté
-      subscriptionTier: server.subscriptionTier,
-      commissionRate: server.commissionRate,
+      activeProducts,
     };
   }
 
   async updateSubscription(
     id: string,
     tier: SubscriptionTier,
-    stripeSubscriptionId?: string,
+    stripeSubscriptionId: string,
   ) {
+    // Définir le taux de commission selon le plan
     const commissionRates = {
       FREE: 5.0,
       STARTER: 3.5,
@@ -151,9 +155,6 @@ export class ServersService {
         subscriptionTier: tier,
         commissionRate: commissionRates[tier],
         stripeSubscriptionId,
-        subscriptionExpiresAt: tier === SubscriptionTier.FREE 
-          ? null 
-          : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       },
     });
   }

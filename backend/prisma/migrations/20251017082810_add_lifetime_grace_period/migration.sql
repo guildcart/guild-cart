@@ -10,6 +10,9 @@ CREATE TYPE "ProductType" AS ENUM ('PDF', 'SERIAL', 'ROLE');
 -- CreateEnum
 CREATE TYPE "OrderStatus" AS ENUM ('PENDING', 'COMPLETED', 'REFUNDED', 'FAILED');
 
+-- CreateEnum
+CREATE TYPE "RoleSubscriptionStatus" AS ENUM ('ACTIVE', 'PAST_DUE', 'CANCELED', 'EXPIRED');
+
 -- CreateTable
 CREATE TABLE "users" (
     "id" TEXT NOT NULL,
@@ -31,11 +34,16 @@ CREATE TABLE "servers" (
     "description" TEXT,
     "owner_id" TEXT NOT NULL,
     "stripe_account_id" TEXT,
+    "stripe_public_key" TEXT,
+    "stripe_secret_key" TEXT,
     "subscription_tier" "SubscriptionTier" NOT NULL DEFAULT 'FREE',
     "subscription_status" "SubscriptionStatus" NOT NULL DEFAULT 'ACTIVE',
     "commission_rate" DOUBLE PRECISION NOT NULL DEFAULT 5.0,
     "stripe_subscription_id" TEXT,
     "subscription_expires_at" TIMESTAMP(3),
+    "primary_color" TEXT DEFAULT '#7C3AED',
+    "webhook_url" TEXT,
+    "notify_on_sale" BOOLEAN NOT NULL DEFAULT false,
     "active" BOOLEAN NOT NULL DEFAULT true,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
@@ -51,9 +59,15 @@ CREATE TABLE "products" (
     "description" TEXT NOT NULL,
     "price" DOUBLE PRECISION NOT NULL,
     "type" "ProductType" NOT NULL,
+    "image_url" TEXT,
     "file_url" TEXT,
     "discord_role_id" TEXT,
+    "bonus_role_id" TEXT,
     "serial_credentials" TEXT,
+    "role_duration" INTEGER,
+    "role_auto_renew" BOOLEAN NOT NULL DEFAULT false,
+    "role_requires_subscription" BOOLEAN NOT NULL DEFAULT false,
+    "role_grace_period_days" INTEGER,
     "stock" INTEGER DEFAULT 0,
     "sales_count" INTEGER NOT NULL DEFAULT 0,
     "active" BOOLEAN NOT NULL DEFAULT true,
@@ -69,7 +83,8 @@ CREATE TABLE "orders" (
     "server_id" TEXT NOT NULL,
     "buyer_id" TEXT NOT NULL,
     "product_id" TEXT NOT NULL,
-    "stripe_payment_intent_id" TEXT NOT NULL,
+    "stripe_payment_intent_id" TEXT,
+    "stripe_subscription_id" TEXT,
     "status" "OrderStatus" NOT NULL DEFAULT 'PENDING',
     "amount" DOUBLE PRECISION NOT NULL,
     "commission_amount" DOUBLE PRECISION NOT NULL,
@@ -80,6 +95,23 @@ CREATE TABLE "orders" (
     "updated_at" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "orders_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "role_subscriptions" (
+    "id" TEXT NOT NULL,
+    "server_id" TEXT NOT NULL,
+    "user_id" TEXT NOT NULL,
+    "product_id" TEXT NOT NULL,
+    "stripe_subscription_id" TEXT NOT NULL,
+    "status" "RoleSubscriptionStatus" NOT NULL DEFAULT 'ACTIVE',
+    "current_period_start" TIMESTAMP(3) NOT NULL,
+    "current_period_end" TIMESTAMP(3) NOT NULL,
+    "cancel_at_period_end" BOOLEAN NOT NULL DEFAULT false,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "role_subscriptions_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -125,6 +157,21 @@ CREATE INDEX "orders_buyer_id_idx" ON "orders"("buyer_id");
 CREATE INDEX "orders_status_idx" ON "orders"("status");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "role_subscriptions_stripe_subscription_id_key" ON "role_subscriptions"("stripe_subscription_id");
+
+-- CreateIndex
+CREATE INDEX "role_subscriptions_server_id_idx" ON "role_subscriptions"("server_id");
+
+-- CreateIndex
+CREATE INDEX "role_subscriptions_user_id_idx" ON "role_subscriptions"("user_id");
+
+-- CreateIndex
+CREATE INDEX "role_subscriptions_status_idx" ON "role_subscriptions"("status");
+
+-- CreateIndex
+CREATE INDEX "role_subscriptions_current_period_end_idx" ON "role_subscriptions"("current_period_end");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "transactions_stripe_transfer_id_key" ON "transactions"("stripe_transfer_id");
 
 -- CreateIndex
@@ -150,3 +197,12 @@ ALTER TABLE "orders" ADD CONSTRAINT "orders_buyer_id_fkey" FOREIGN KEY ("buyer_i
 
 -- AddForeignKey
 ALTER TABLE "orders" ADD CONSTRAINT "orders_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "products"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "role_subscriptions" ADD CONSTRAINT "role_subscriptions_server_id_fkey" FOREIGN KEY ("server_id") REFERENCES "servers"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "role_subscriptions" ADD CONSTRAINT "role_subscriptions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "role_subscriptions" ADD CONSTRAINT "role_subscriptions_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "products"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

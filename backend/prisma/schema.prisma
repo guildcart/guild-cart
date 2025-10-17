@@ -1,4 +1,4 @@
-// backend/prisma/schema.prisma - VERSION CORRIGÉE
+// backend/prisma/schema.prisma - AVEC SYSTÈME D'ABONNEMENT RÔLES
 
 generator client {
   provider = "prisma-client-js"
@@ -20,6 +20,7 @@ model User {
 
   ownedServers  Server[]  @relation("ServerOwner")
   orders        Order[]
+  subscriptions RoleSubscription[]  // 🆕 NOUVEAU
   
   @@map("users")
 }
@@ -45,28 +46,39 @@ model Server {
   shopName              String              @map("shop_name")
   description           String?
   ownerId               String              @map("owner_id")
+  
+  // Stripe Configuration
   stripeAccountId       String?             @unique @map("stripe_account_id")
+  stripePublicKey       String?             @map("stripe_public_key")
+  stripeSecretKey       String?             @map("stripe_secret_key")
+  
+  // Subscription
   subscriptionTier      SubscriptionTier    @default(FREE) @map("subscription_tier")
   subscriptionStatus    SubscriptionStatus  @default(ACTIVE) @map("subscription_status")
   commissionRate        Float               @default(5.0) @map("commission_rate")
   stripeSubscriptionId  String?             @unique @map("stripe_subscription_id")
   subscriptionExpiresAt DateTime?           @map("subscription_expires_at")
-  active                Boolean             @default(true)
   
-  // 🆕 NOUVEAU : Couleur personnalisée
+  // Apparence
   primaryColor          String?             @default("#7C3AED") @map("primary_color")
   
+  // Notifications Discord
+  webhookUrl            String?             @map("webhook_url")
+  notifyOnSale          Boolean             @default(false) @map("notify_on_sale")
+  
+  // Status
+  active                Boolean             @default(true)
   createdAt             DateTime            @default(now()) @map("created_at")
   updatedAt             DateTime            @updatedAt @map("updated_at")
 
   owner                 User                @relation("ServerOwner", fields: [ownerId], references: [id])
   products              Product[]
   orders                Order[]
+  roleSubscriptions     RoleSubscription[]  // 🆕 NOUVEAU
   
   @@map("servers")
 }
 
-// ✅ CORRIGÉ : PDF, SERIAL, ROLE (ACCOUNT supprimé)
 enum ProductType {
   PDF
   SERIAL
@@ -81,24 +93,28 @@ model Product {
   price               Float
   type                ProductType
   
-  // 🆕 NOUVEAU : Image du produit (URL)
   imageUrl            String?     @map("image_url")
-  
   fileUrl             String?     @map("file_url")
   discordRoleId       String?     @map("discord_role_id")
-  
-  // 🆕 NOUVEAU : Rôle bonus (pour PDF et SERIAL)
   bonusRoleId         String?     @map("bonus_role_id")
-  
   serialCredentials   String?     @map("serial_credentials")
+  
+  // 🆕 NOUVEAU : Configuration abonnement rôles
+  roleDuration              Int?      @map("role_duration")                // Durée en jours (14, 30, etc.) | -1 = Lifetime
+  roleAutoRenew             Boolean   @default(false) @map("role_auto_renew")  // Renouvellement auto
+  roleRequiresSubscription  Boolean   @default(false) @map("role_requires_subscription")  // Forcer abonnement
+  roleGracePeriodDays       Int?      @map("role_grace_period_days")     // Période de grâce en jours (3, 7, 14)
+  
   stock               Int?        @default(0)
   salesCount          Int         @default(0) @map("sales_count")
   active              Boolean     @default(true)
+  
   createdAt           DateTime    @default(now()) @map("created_at")
   updatedAt           DateTime    @updatedAt @map("updated_at")
 
   server              Server      @relation(fields: [serverId], references: [id], onDelete: Cascade)
   orders              Order[]
+  subscriptions       RoleSubscription[]  // 🆕 NOUVEAU
   
   @@map("products")
   @@index([serverId])
@@ -116,7 +132,8 @@ model Order {
   serverId                String      @map("server_id")
   buyerId                 String      @map("buyer_id")
   productId               String      @map("product_id")
-  stripePaymentIntentId   String      @unique @map("stripe_payment_intent_id")
+  stripePaymentIntentId   String?     @unique @map("stripe_payment_intent_id")
+  stripeSubscriptionId    String?     @map("stripe_subscription_id")  // 🆕 NOUVEAU
   status                  OrderStatus @default(PENDING)
   amount                  Float
   commissionAmount        Float       @map("commission_amount")
@@ -134,6 +151,38 @@ model Order {
   @@index([serverId])
   @@index([buyerId])
   @@index([status])
+}
+
+// 🆕 NOUVEAU : Table pour gérer les abonnements aux rôles
+enum RoleSubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  EXPIRED
+}
+
+model RoleSubscription {
+  id                      String                  @id @default(uuid())
+  serverId                String                  @map("server_id")
+  userId                  String                  @map("user_id")
+  productId               String                  @map("product_id")
+  stripeSubscriptionId    String                  @unique @map("stripe_subscription_id")
+  status                  RoleSubscriptionStatus  @default(ACTIVE)
+  currentPeriodStart      DateTime                @map("current_period_start")
+  currentPeriodEnd        DateTime                @map("current_period_end")
+  cancelAtPeriodEnd       Boolean                 @default(false) @map("cancel_at_period_end")
+  createdAt               DateTime                @default(now()) @map("created_at")
+  updatedAt               DateTime                @updatedAt @map("updated_at")
+
+  server                  Server                  @relation(fields: [serverId], references: [id])
+  user                    User                    @relation(fields: [userId], references: [id])
+  product                 Product                 @relation(fields: [productId], references: [id])
+  
+  @@map("role_subscriptions")
+  @@index([serverId])
+  @@index([userId])
+  @@index([status])
+  @@index([currentPeriodEnd])
 }
 
 model Transaction {
