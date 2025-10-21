@@ -1,3 +1,5 @@
+// panel/src/pages/Dashboard.tsx
+
 import { useEffect, useState } from 'react';
 import { DollarSign, ShoppingBag, Package, TrendingUp, Users, AlertCircle } from 'lucide-react';
 import { serversApi, ordersApi } from '../lib/api';
@@ -16,6 +18,7 @@ interface RecentOrder {
   buyerUsername: string;
   amount: number;
   status: string;
+  delivered: boolean; // 🆕 Ajout du champ delivered
   createdAt: string;
 }
 
@@ -203,14 +206,17 @@ export default function Dashboard() {
                   </div>
                   <div className="text-right">
                     <div className="text-green-400 font-bold">+{order.amount.toFixed(2)}€</div>
+                    {/* 🆕 MODIFICATION ICI - Affichage du statut avec delivered */}
                     <div className={`text-sm ${
-                      order.status === 'completed' ? 'text-green-500' : 
-                      order.status === 'pending' ? 'text-yellow-500' : 
-                      'text-red-500'
+                      order.delivered ? 'text-green-500' :  // ✅ Livré
+                      order.status === 'pending' ? 'text-yellow-500' :  // ⏳ En attente
+                      order.status === 'completed' ? 'text-blue-500' :  // ✓ Payé (mais pas encore livré)
+                      'text-red-500'  // ❌ Échoué
                     }`}>
-                      {order.status === 'completed' ? 'Livré' : 
-                       order.status === 'pending' ? 'En attente' : 
-                       'Échoué'}
+                      {order.delivered ? '✅ Livré' : 
+                       order.status === 'pending' ? '⏳ En attente' : 
+                       order.status === 'completed' ? '✓ Payé' : 
+                       '❌ Échoué'}
                     </div>
                   </div>
                 </div>
