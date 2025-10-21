@@ -41,8 +41,11 @@ export class MailService {
         ? `${this.frontendUrl}/delivery/${data.deliveryToken}`
         : null;
 
+      // ✅ CORRECTION : Utiliser directement fileUrl si c'est déjà une URL complète
       const downloadLink = data.fileUrl
-        ? `${this.frontendUrl}/api/uploads/${data.fileUrl}`
+        ? (data.fileUrl.startsWith('http') 
+            ? data.fileUrl  // Déjà une URL complète
+            : `${this.frontendUrl}/api/uploads/${data.fileUrl}`)  // Juste un nom de fichier
         : null;
 
       const reviewLink = `${this.frontendUrl}/review/${data.reviewToken}`;

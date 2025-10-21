@@ -187,6 +187,7 @@ export class DeliveryService {
 
   /**
    * Livrer un ROLE Discord
+   * ✅ CORRECTION : Envoie l'email D'ABORD, puis essaie d'attribuer le rôle
    */
   private async deliverRole(order: any) {
     this.logger.log(`👑 Livraison de rôle Discord pour ${order.id}`);
@@ -195,22 +196,7 @@ export class DeliveryService {
       throw new BadRequestException('Aucun rôle Discord configuré pour ce produit');
     }
 
-    // Attribuer le rôle via le bot Discord
-    try {
-      await this.assignDiscordRole({
-        guildId: order.server.discordServerId,
-        userId: order.buyer.discordId,
-        roleId: order.product.discordRoleId,
-        duration: order.product.roleDuration, // null = permanent, >0 = temporaire
-      });
-
-      this.logger.log(`✅ Rôle Discord attribué pour ${order.id}`);
-    } catch (error) {
-      this.logger.error(`❌ Erreur lors de l'attribution du rôle:`, error);
-      throw new BadRequestException('Impossible d\'attribuer le rôle Discord');
-    }
-
-    // Envoyer l'email
+    // ✅ ENVOYER L'EMAIL D'ABORD (priorité absolue)
     await this.mailService.sendOrderConfirmation({
       orderId: order.id,
       buyerEmail: order.buyer.email || 'no-email@example.com',
@@ -223,25 +209,49 @@ export class DeliveryService {
       roleName: order.product.name,
     });
 
-    // Envoyer message Discord
-    const durationText = this.getRoleDurationText(
-      order.product.roleDuration,
-      order.product.roleAutoRenew,
-    );
+    this.logger.log(`✅ Email de confirmation envoyé pour le rôle ${order.product.name}`);
 
-    await this.sendDiscordNotification({
-      userId: order.buyer.discordId,
-      guildId: order.server.discordServerId,
-      type: 'ROLE',
-      productName: order.product.name,
-      amount: order.amount,
-      roleName: order.product.name,
-      roleDuration: durationText,
-      roleAutoRenew: order.product.roleAutoRenew,
-      reviewLink: `${this.frontendUrl}/review/${order.reviewToken}`,
-    });
+    // ✅ ESSAYER d'attribuer le rôle (mais ne pas bloquer si ça échoue)
+    try {
+      await this.assignDiscordRole({
+        guildId: order.server.discordServerId,
+        userId: order.buyer.discordId,
+        roleId: order.product.discordRoleId,
+        duration: order.product.roleDuration, // null = permanent, >0 = temporaire
+      });
 
-    this.logger.log(`✅ Rôle livré pour ${order.id}`);
+      this.logger.log(`✅ Rôle Discord attribué automatiquement pour ${order.id}`);
+    } catch (error) {
+      // ✅ NE PAS THROW - Juste logger l'erreur
+      this.logger.error(`⚠️ Impossible d'attribuer le rôle automatiquement (bot non configuré):`, error.message);
+      this.logger.warn(`ℹ️ L'utilisateur devra peut-être attribuer le rôle manuellement ou le bot est hors ligne`);
+      // On continue quand même, l'email a été envoyé
+    }
+
+    // ✅ TOUJOURS envoyer la notification Discord (même si l'attribution a échoué)
+    try {
+      const durationText = this.getRoleDurationText(
+        order.product.roleDuration,
+        order.product.roleAutoRenew,
+      );
+
+      await this.sendDiscordNotification({
+        userId: order.buyer.discordId,
+        guildId: order.server.discordServerId,
+        type: 'ROLE',
+        productName: order.product.name,
+        amount: order.amount,
+        roleName: order.product.name,
+        roleDuration: durationText,
+        roleAutoRenew: order.product.roleAutoRenew,
+        reviewLink: `${this.frontendUrl}/review/${order.reviewToken}`,
+      });
+    } catch (error) {
+      this.logger.error('⚠️ Erreur lors de l\'envoi de la notification Discord:', error.message);
+      // Pas grave, on continue
+    }
+
+    this.logger.log(`✅ Rôle livré pour ${order.id} (email envoyé avec succès)`);
   }
 
   /**

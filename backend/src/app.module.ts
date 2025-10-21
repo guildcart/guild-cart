@@ -1,3 +1,5 @@
+// backend/src/app.module.ts
+
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from './auth/auth.module';
@@ -10,9 +12,9 @@ import { PaymentsModule } from './payments/payments.module';
 import { BotModule } from './bot/bot.module';
 import { UploadModule } from './upload/upload.module';
 import { DiscordModule } from './discord/discord.module';
-import { MailModule } from './mail/mail.module';           // 🆕 NOUVEAU
-import { DeliveryModule } from './delivery/delivery.module'; // 🆕 NOUVEAU
-import { ReviewsModule } from './reviews/reviews.module';    // 🆕 NOUVEAU
+import { MailModule } from './mail/mail.module';
+import { DeliveryModule } from './delivery/delivery.module';
+import { ReviewsModule } from './reviews/reviews.module';
 
 @Module({
   imports: [
@@ -33,8 +35,9 @@ import { ReviewsModule } from './reviews/reviews.module';    // 🆕 NOUVEAU
     BotModule,
     UploadModule,
     DiscordModule,
-    MailModule,        // 🆕 NOUVEAU - Envoi d'emails
-    DeliveryModule,    // 🆕 NOUVEAU - Livraison automatique
+    MailModule,
+    DeliveryModule,
+    ReviewsModule, // ✅ CORRECTION : Ajouté dans le tableau imports
   ],
 })
 export class AppModule {}
