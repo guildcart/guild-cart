@@ -1,4 +1,4 @@
-// backend/prisma/schema.prisma - AVEC SYSTÈME D'ABONNEMENT RÔLES
+// backend/prisma/schema.prisma - AVEC DELIVERY + REVIEWS
 
 generator client {
   provider = "prisma-client-js"
@@ -20,7 +20,8 @@ model User {
 
   ownedServers  Server[]  @relation("ServerOwner")
   orders        Order[]
-  subscriptions RoleSubscription[]  // 🆕 NOUVEAU
+  subscriptions RoleSubscription[]
+  reviews       Review[]  // 🆕
   
   @@map("users")
 }
@@ -74,7 +75,8 @@ model Server {
   owner                 User                @relation("ServerOwner", fields: [ownerId], references: [id])
   products              Product[]
   orders                Order[]
-  roleSubscriptions     RoleSubscription[]  // 🆕 NOUVEAU
+  roleSubscriptions     RoleSubscription[]
+  reviews               Review[]  // 🆕
   
   @@map("servers")
 }
@@ -99,11 +101,11 @@ model Product {
   bonusRoleId         String?     @map("bonus_role_id")
   serialCredentials   String?     @map("serial_credentials")
   
-  // 🆕 NOUVEAU : Configuration abonnement rôles
-  roleDuration              Int?      @map("role_duration")                // Durée en jours (14, 30, etc.) | -1 = Lifetime
-  roleAutoRenew             Boolean   @default(false) @map("role_auto_renew")  // Renouvellement auto
-  roleRequiresSubscription  Boolean   @default(false) @map("role_requires_subscription")  // Forcer abonnement
-  roleGracePeriodDays       Int?      @map("role_grace_period_days")     // Période de grâce en jours (3, 7, 14)
+  // Configuration abonnement rôles (ROLE uniquement)
+  roleDuration              Int?      @map("role_duration")
+  roleAutoRenew             Boolean   @default(false) @map("role_auto_renew")
+  roleRequiresSubscription  Boolean   @default(false) @map("role_requires_subscription")
+  roleGracePeriodDays       Int?      @map("role_grace_period_days")
   
   stock               Int?        @default(0)
   salesCount          Int         @default(0) @map("sales_count")
@@ -114,7 +116,7 @@ model Product {
 
   server              Server      @relation(fields: [serverId], references: [id], onDelete: Cascade)
   orders              Order[]
-  subscriptions       RoleSubscription[]  // 🆕 NOUVEAU
+  subscriptions       RoleSubscription[]
   
   @@map("products")
   @@index([serverId])
@@ -133,27 +135,56 @@ model Order {
   buyerId                 String      @map("buyer_id")
   productId               String      @map("product_id")
   stripePaymentIntentId   String?     @unique @map("stripe_payment_intent_id")
-  stripeSubscriptionId    String?     @map("stripe_subscription_id")  // 🆕 NOUVEAU
+  stripeSubscriptionId    String?     @map("stripe_subscription_id")
   status                  OrderStatus @default(PENDING)
   amount                  Float
   commissionAmount        Float       @map("commission_amount")
+  
+  // 🆕 Delivery
+  deliveryToken           String      @unique @default(cuid()) @map("delivery_token")
   deliveryData            String?     @map("delivery_data")
   delivered               Boolean     @default(false)
   deliveredAt             DateTime?   @map("delivered_at")
+  
+  // 🆕 Review
+  reviewToken             String      @unique @default(cuid()) @map("review_token")
+  
   createdAt               DateTime    @default(now()) @map("created_at")
   updatedAt               DateTime    @updatedAt @map("updated_at")
 
   server                  Server      @relation(fields: [serverId], references: [id])
   buyer                   User        @relation(fields: [buyerId], references: [id])
   product                 Product     @relation(fields: [productId], references: [id])
+  review                  Review?     // 🆕
   
   @@map("orders")
   @@index([serverId])
   @@index([buyerId])
   @@index([status])
+  @@index([deliveryToken])
+  @@index([reviewToken])
 }
 
-// 🆕 NOUVEAU : Table pour gérer les abonnements aux rôles
+// 🆕 Table Reviews (Avis clients)
+model Review {
+  id        String   @id @default(cuid())
+  orderId   String   @unique @map("order_id")
+  serverId  String   @map("server_id")
+  userId    String   @map("user_id")
+  rating    Int      // 1-5 étoiles
+  comment   String?
+  createdAt DateTime @default(now()) @map("created_at")
+  
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  server    Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("reviews")
+  @@index([serverId])
+  @@index([rating])
+  @@index([createdAt])
+}
+
 enum RoleSubscriptionStatus {
   ACTIVE
   PAST_DUE
@@ -166,17 +197,23 @@ model RoleSubscription {
   serverId                String                  @map("server_id")
   userId                  String                  @map("user_id")
   productId               String                  @map("product_id")
-  stripeSubscriptionId    String                  @unique @map("stripe_subscription_id")
+  stripeSubscriptionId    String?                 @unique @map("stripe_subscription_id")
   status                  RoleSubscriptionStatus  @default(ACTIVE)
+  
   currentPeriodStart      DateTime                @map("current_period_start")
   currentPeriodEnd        DateTime                @map("current_period_end")
+  
   cancelAtPeriodEnd       Boolean                 @default(false) @map("cancel_at_period_end")
+  
+  retryCount              Int                     @default(0) @map("retry_count")
+  lastRetryAt             DateTime?               @map("last_retry_at")
+  
   createdAt               DateTime                @default(now()) @map("created_at")
   updatedAt               DateTime                @updatedAt @map("updated_at")
 
-  server                  Server                  @relation(fields: [serverId], references: [id])
-  user                    User                    @relation(fields: [userId], references: [id])
-  product                 Product                 @relation(fields: [productId], references: [id])
+  server                  Server                  @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  user                    User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product                 Product                 @relation(fields: [productId], references: [id], onDelete: Cascade)
   
   @@map("role_subscriptions")
   @@index([serverId])

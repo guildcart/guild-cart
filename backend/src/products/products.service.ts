@@ -1,4 +1,4 @@
-// backend/src/products/products.service.ts - AVEC ABONNEMENT RÔLES
+// backend/src/products/products.service.ts - VERSION COMPLÈTE
 
 import {
   Injectable,
@@ -26,8 +26,9 @@ export class ProductsService {
       fileUrl?: string;
       discordRoleId?: string;
       serialCredentials?: string;
+      bonusRoleId?: string;
       stock?: number;
-      // 🆕 NOUVEAU : Abonnement rôles
+      // Abonnement rôles
       roleDuration?: number;
       roleAutoRenew?: boolean;
       roleRequiresSubscription?: boolean;
@@ -43,7 +44,7 @@ export class ProductsService {
       throw new ForbiddenException('You do not own this server');
     }
 
-    // ✅ NOUVELLE VALIDATION : Abonnement rôles
+    // ✅ VALIDATION : Abonnement rôles
     if (data.type === 'ROLE' && data.roleDuration !== undefined) {
       // Si Lifetime (-1), pas de renouvellement auto
       if (data.roleDuration === -1) {
@@ -145,12 +146,14 @@ export class ProductsService {
       fileUrl: string;
       discordRoleId: string;
       serialCredentials: string;
+      bonusRoleId: string;
       stock: number;
       active: boolean;
-      // 🆕 NOUVEAU : Abonnement rôles
+      // Abonnement rôles
       roleDuration: number;
       roleAutoRenew: boolean;
       roleRequiresSubscription: boolean;
+      roleGracePeriodDays: number;
     }>,
   ) {
     // Vérifier que l'utilisateur est propriétaire du serveur
@@ -167,11 +170,25 @@ export class ProductsService {
       throw new ForbiddenException('You do not own this server');
     }
 
-    // ✅ NOUVELLE VALIDATION : Si on modifie les paramètres d'abonnement
+    // ✅ VALIDATION : Si on modifie les paramètres d'abonnement
     if (product.type === 'ROLE') {
       const newRoleRequiresSubscription = data.roleRequiresSubscription ?? product.roleRequiresSubscription;
       const newRoleAutoRenew = data.roleAutoRenew ?? product.roleAutoRenew;
       const newRoleDuration = data.roleDuration ?? product.roleDuration;
+
+      // Validation Lifetime
+      if (newRoleDuration === -1) {
+        if (newRoleAutoRenew) {
+          throw new BadRequestException(
+            'Les rôles Lifetime ne peuvent pas avoir de renouvellement automatique',
+          );
+        }
+        if (newRoleRequiresSubscription) {
+          throw new BadRequestException(
+            'Les rôles Lifetime ne peuvent pas forcer l\'abonnement',
+          );
+        }
+      }
 
       if (newRoleRequiresSubscription && !newRoleAutoRenew) {
         throw new BadRequestException(
@@ -179,16 +196,30 @@ export class ProductsService {
         );
       }
 
-      if (newRoleAutoRenew && !newRoleDuration) {
+      if (newRoleAutoRenew && (!newRoleDuration || newRoleDuration <= 0)) {
         throw new BadRequestException(
           'Le renouvellement automatique nécessite une durée de rôle définie',
         );
       }
 
-      if (data.roleDuration !== undefined && data.roleDuration <= 0) {
+      if (data.roleDuration !== undefined && data.roleDuration !== -1 && data.roleDuration <= 0) {
         throw new BadRequestException(
-          'La durée du rôle doit être supérieure à 0 jours',
+          'La durée du rôle doit être supérieure à 0 jours ou -1 pour Lifetime',
         );
+      }
+
+      // Validation grace period
+      if (data.roleGracePeriodDays !== undefined) {
+        if (!newRoleAutoRenew) {
+          throw new BadRequestException(
+            'La période de grâce nécessite le renouvellement automatique',
+          );
+        }
+        if (data.roleGracePeriodDays < 1 || data.roleGracePeriodDays > 30) {
+          throw new BadRequestException(
+            'La période de grâce doit être entre 1 et 30 jours',
+          );
+        }
       }
     }
 
@@ -254,7 +285,7 @@ export class ProductsService {
     });
   }
 
-  // 🆕 NOUVEAU : Méthode pour vérifier les rôles expirés (à appeler via cron)
+  // 🆕 Méthode pour vérifier les rôles expirés (cron job)
   async checkExpiredRoles() {
     const now = new Date();
 
@@ -297,5 +328,142 @@ export class ProductsService {
       checked: expiredSubscriptions.length,
       expired: expiredSubscriptions.filter(s => !s.product.roleAutoRenew).length,
     };
+  }
+
+  // 🆕 Créer un abonnement de rôle (appelé après paiement)
+  async createRoleSubscription(
+    userId: string,
+    productId: string,
+    serverId: string,
+    stripeSubscriptionId?: string,
+  ) {
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+    });
+
+    if (!product || product.type !== 'ROLE') {
+      throw new BadRequestException('Product is not a role');
+    }
+
+    if (!product.roleDuration || product.roleDuration <= 0) {
+      throw new BadRequestException('Product does not have a valid duration');
+    }
+
+    const now = new Date();
+    const endDate = new Date(now);
+    endDate.setDate(endDate.getDate() + product.roleDuration);
+
+    return this.prisma.roleSubscription.create({
+      data: {
+        userId,
+        productId,
+        serverId,
+        stripeSubscriptionId,
+        currentPeriodStart: now,
+        currentPeriodEnd: endDate,
+        status: 'ACTIVE',
+      },
+    });
+  }
+
+  // 🆕 Mettre à jour un abonnement de rôle (renouvellement)
+  async renewRoleSubscription(subscriptionId: string) {
+    const subscription = await this.prisma.roleSubscription.findUnique({
+      where: { id: subscriptionId },
+      include: { product: true },
+    });
+
+    if (!subscription) {
+      throw new NotFoundException('Subscription not found');
+    }
+
+    const now = new Date();
+    const endDate = new Date(now);
+    endDate.setDate(endDate.getDate() + (subscription.product.roleDuration || 30));
+
+    return this.prisma.roleSubscription.update({
+      where: { id: subscriptionId },
+      data: {
+        currentPeriodStart: now,
+        currentPeriodEnd: endDate,
+        retryCount: 0,
+        lastRetryAt: null,
+        status: 'ACTIVE',
+      },
+    });
+  }
+
+  // 🆕 Annuler un abonnement de rôle
+  async cancelRoleSubscription(subscriptionId: string) {
+    return this.prisma.roleSubscription.update({
+      where: { id: subscriptionId },
+      data: { status: 'CANCELED' },
+    });
+  }
+
+  // 🆕 Décrémenter le stock d'un produit (appelé après achat)
+  async decrementStock(productId: string) {
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+    });
+
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    // Si le produit n'a pas de stock défini (null = illimité), ne rien faire
+    if (product.stock === null) {
+      return product;
+    }
+
+    // Si le stock est déjà à 0, désactiver le produit
+    if (product.stock <= 0) {
+      return this.prisma.product.update({
+        where: { id: productId },
+        data: { 
+          active: false,
+          stock: 0,
+        },
+      });
+    }
+
+    // Décrémenter le stock
+    const newStock = product.stock - 1;
+    
+    return this.prisma.product.update({
+      where: { id: productId },
+      data: { 
+        stock: newStock,
+        salesCount: product.salesCount + 1,
+        // Si le stock atteint 0, désactiver le produit
+        active: newStock > 0 ? product.active : false,
+      },
+    });
+  }
+
+  // 🆕 Incrémenter le stock d'un produit (appelé après remboursement)
+  async incrementStock(productId: string) {
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+    });
+
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    // Si le produit n'a pas de stock défini (null = illimité), ne rien faire
+    if (product.stock === null) {
+      return product;
+    }
+
+    return this.prisma.product.update({
+      where: { id: productId },
+      data: { 
+        stock: product.stock + 1,
+        salesCount: Math.max(0, product.salesCount - 1),
+        // Si le produit était désactivé à cause du stock, le réactiver
+        active: true,
+      },
+    });
   }
 }

@@ -8,8 +8,11 @@ import { ProductsModule } from './products/products.module';
 import { OrdersModule } from './orders/orders.module';
 import { PaymentsModule } from './payments/payments.module';
 import { BotModule } from './bot/bot.module';
-import { UploadModule } from './upload/upload.module';      // 🆕 NOUVEAU
-import { DiscordModule } from './discord/discord.module';  // 🆕 NOUVEAU
+import { UploadModule } from './upload/upload.module';
+import { DiscordModule } from './discord/discord.module';
+import { MailModule } from './mail/mail.module';           // 🆕 NOUVEAU
+import { DeliveryModule } from './delivery/delivery.module'; // 🆕 NOUVEAU
+import { ReviewsModule } from './reviews/reviews.module';    // 🆕 NOUVEAU
 
 @Module({
   imports: [
@@ -28,8 +31,10 @@ import { DiscordModule } from './discord/discord.module';  // 🆕 NOUVEAU
     OrdersModule,
     PaymentsModule,
     BotModule,
-    UploadModule,     // 🆕 NOUVEAU - Upload de fichiers
-    DiscordModule,    // 🆕 NOUVEAU - API Discord (rôles)
+    UploadModule,
+    DiscordModule,
+    MailModule,        // 🆕 NOUVEAU - Envoi d'emails
+    DeliveryModule,    // 🆕 NOUVEAU - Livraison automatique
   ],
 })
 export class AppModule {}

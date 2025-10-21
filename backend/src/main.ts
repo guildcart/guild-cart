@@ -1,14 +1,15 @@
+// backend/src/main.ts - AVEC SUPPORT RAWBODY POUR STRIPE
+
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
+import * as express from 'express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
-    rawBody: true, // Nécessaire pour les webhooks Stripe
-  });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   // CORS pour permettre au frontend d'accéder à l'API
   app.enableCors({
@@ -20,7 +21,18 @@ async function bootstrap() {
     credentials: true,
   });
 
-  // 🆕 Servir les fichiers statiques (uploads)
+  // 🆕 CRITIQUE : Middleware pour le rawBody (nécessaire pour les webhooks Stripe)
+  // Doit être AVANT le JSON parser global
+  app.use(
+    '/api/payments/webhook',
+    express.raw({ type: 'application/json' }),
+  );
+
+  // Parser JSON global (pour toutes les autres routes)
+  app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
+
+  // Servir les fichiers statiques (uploads)
   app.useStaticAssets(join(__dirname, '..', 'uploads'), {
     prefix: '/uploads/',
   });
@@ -39,8 +51,8 @@ async function bootstrap() {
 
   // Documentation Swagger
   const config = new DocumentBuilder()
-    .setTitle('Discord Shop Bot API')
-    .setDescription('API for Discord Shop Bot - E-commerce platform for Discord servers')
+    .setTitle('Guild Cart API')
+    .setDescription('API for Guild Cart - E-commerce platform for Discord servers')
     .setVersion('1.0')
     .addBearerAuth()
     .build();
@@ -52,6 +64,7 @@ async function bootstrap() {
 
   console.log(`🚀 Backend API running on: http://localhost:${port}`);
   console.log(`📚 Swagger docs available at: http://localhost:${port}/api/docs`);
+  console.log(`💳 Stripe webhook endpoint: http://localhost:${port}/api/payments/webhook`);
 }
 
 bootstrap();
